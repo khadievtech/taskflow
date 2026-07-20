@@ -7,6 +7,7 @@ Kubernetes → IaC.
 ## Статус проекта
 
 - [x] Phase 0 — Repo structure & app skeleton
+- [x] Phase 0.5 — Postgres + SQLAlchemy + Alembic + Task CRUD
 - [ ] Phase 1 — Containerization (Docker Compose)
 - [ ] Phase 2 — CI (lint, test, build)
 - [ ] Phase 3 — CD (GHCR + деплой на home server)

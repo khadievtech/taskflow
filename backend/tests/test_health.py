@@ -1,14 +1,4 @@
-import pytest
-from httpx import ASGITransport, AsyncClient
-
-from app.main import app
-
-
-@pytest.fixture
-async def client():
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        yield ac
+from httpx import AsyncClient
 
 
 async def test_liveness(client: AsyncClient) -> None:
@@ -18,6 +8,8 @@ async def test_liveness(client: AsyncClient) -> None:
 
 
 async def test_readiness(client: AsyncClient) -> None:
+    # Требует реальный Postgres, доступный по DATABASE_URL из .env/окружения.
+    # В CI (Phase 2) это будет сервис-контейнер postgres в GitHub Actions.
     response = await client.get("/api/v1/health/ready")
     assert response.status_code == 200
 

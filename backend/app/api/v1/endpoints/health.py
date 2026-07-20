@@ -11,7 +11,11 @@ Health-check endpoints.
 балансировки — это частая ошибка новичков в K8s.
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db.session import get_db_session
 
 router = APIRouter(tags=["health"])
 
@@ -22,6 +26,13 @@ async def liveness() -> dict[str, str]:
 
 
 @router.get("/ready")
-async def readiness() -> dict[str, str]:
-    # TODO(Phase 1): добавить проверку подключения к Postgres/Redis
+async def readiness(session: AsyncSession = Depends(get_db_session)) -> dict[str, str]:
+    try:
+        await session.execute(text("SELECT 1"))
+    except Exception as exc:  # noqa: BLE001 — намеренно широкий catch: любая
+        # ошибка подключения к БД должна означать "под не готов принимать трафик"
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"database unavailable: {exc}",
+        ) from exc
     return {"status": "ok"}

@@ -34,6 +34,10 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+# B008: FastAPI использует Depends(...) в дефолтных аргументах как штатный
+# идиоматичный паттерн (Dependency Injection) — это не тот случай мутабельного
+# дефолтного аргумента, от которого предостерегает правило.
+ignore = ["B008"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -42,4 +46,6 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]
