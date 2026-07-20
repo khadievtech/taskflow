@@ -1,0 +1,76 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-taskflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-taskflow}
+      POSTGRES_DB: ${POSTGRES_DB:-taskflow}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      # Пробрасываем наружу для удобства — чтобы можно было подключиться
+      # локальным psql/DBeaver и посмотреть на данные напрямую. В боевом
+      # окружении (Phase 7+) БД обычно не публикуют наружу вообще.
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-taskflow} -d ${POSTGRES_DB:-taskflow}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - taskflow-net
+
+  backend:
+    build:
+      context: ./backend
+      target: dev
+    environment:
+      APP_NAME: TaskFlow API
+      ENVIRONMENT: local
+      DEBUG: "true"
+      # db:5432, а не localhost:5432 — внутри сети Compose контейнеры видят
+      # друг друга по имени сервиса (см. обсуждение service discovery выше).
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-taskflow}:${POSTGRES_PASSWORD:-taskflow}@db:5432/${POSTGRES_DB:-taskflow}
+      CORS_ORIGINS: '["http://localhost:5173"]'
+    ports:
+      - "8000:8000"
+    volumes:
+      # Bind mount только на код, который реально меняется при разработке —
+      # не монтируем весь backend/, чтобы не перекрыть venv/site-packages,
+      # установленные внутри образа на этапе сборки.
+      - ./backend/app:/app/app
+      - ./backend/alembic/versions:/app/alembic/versions
+      - ./backend/tests:/app/tests
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - taskflow-net
+
+  frontend:
+    build:
+      context: ./frontend
+      target: dev
+    environment:
+      VITE_API_URL: http://localhost:8000
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/index.html:/app/index.html
+      # node_modules НЕ монтируем с хоста: зависимости, установленные внутри
+      # контейнера (Linux), могут отличаться от установленных на вашем Mac
+      # (нативные бинарники разных платформ) — анонимный volume поверх
+      # защищает node_modules контейнера от перезаписи хостовым bind mount.
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - taskflow-net
+
+volumes:
+  postgres-data:
+
+networks:
+  taskflow-net:
+    driver: bridge

@@ -8,7 +8,7 @@ Kubernetes → IaC.
 
 - [x] Phase 0 — Repo structure & app skeleton
 - [x] Phase 0.5 — Postgres + SQLAlchemy + Alembic + Task CRUD
-- [ ] Phase 1 — Containerization (Docker Compose)
+- [x] Phase 1 — Containerization (Docker Compose)
 - [ ] Phase 2 — CI (lint, test, build)
 - [ ] Phase 3 — CD (GHCR + деплой на home server)
 - [ ] Phase 4 — Observability (Prometheus/Grafana/Loki/Alertmanager)
@@ -29,12 +29,44 @@ docker-compose стека monorepo даёт атомарные коммиты ч
 
 ```
 taskflow/
-├── backend/        # FastAPI application
-├── frontend/        # React application
-├── infra/           # Terraform, Helm charts, k8s manifests (позже)
+├── backend/          # FastAPI application
+├── frontend/          # React application
+├── infra/             # Terraform, Helm charts, k8s manifests (позже)
+├── docs/adr/           # Architecture Decision Records
 ├── .github/
-│   └── workflows/    # CI/CD pipelines
-└── docker-compose.yml (появится в Phase 1)
+│   └── workflows/      # CI/CD pipelines (Phase 2)
+└── docker-compose.yml
+```
+
+## Запуск через Docker Compose (рекомендуемый способ)
+
+Единственное требование — установленный Docker Desktop.
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+Первый запуск соберёт образы (backend, frontend) и поднимет Postgres.
+Backend при старте автоматически применит миграции (см. `backend/docker-entrypoint.sh`).
+
+- Frontend: http://localhost:5173
+- Backend docs: http://localhost:8000/docs
+- Postgres: доступен с хоста на `localhost:5432` (для psql/DBeaver)
+
+Остановить и удалить контейнеры (данные в volume сохранятся):
+```bash
+docker compose down
+```
+
+Остановить и **стереть данные БД** полностью:
+```bash
+docker compose down -v
+```
+
+Посмотреть логи конкретного сервиса:
+```bash
+docker compose logs -f backend
 ```
 
 ## Git workflow
