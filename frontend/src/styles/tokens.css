@@ -1,0 +1,30 @@
+:root {
+  /* Color */
+  --color-bg: #14161b;
+  --color-surface: #1c1f26;
+  --color-surface-raised: #23262f;
+  --color-border: #2c2f38;
+  --color-text: #e7e8ea;
+  --color-text-muted: #8a8f98;
+  --color-accent: #5b5fef;
+  --color-accent-soft: rgba(91, 95, 239, 0.15);
+  --color-warn: #f0b429;
+  --color-warn-soft: rgba(240, 180, 41, 0.15);
+  --color-success: #3fb950;
+  --color-success-soft: rgba(63, 185, 80, 0.15);
+
+  /* Typography */
+  --font-display: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+  --font-body: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  /* Layout */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+}
