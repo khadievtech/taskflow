@@ -22,6 +22,8 @@ build/
 !.env.example
 
 # Docker
+*.pid
+# Logs
 *.log
 
 # Terraform (появится в Phase 8)
