@@ -29,6 +29,9 @@ docker-compose стека monorepo даёт атомарные коммиты ч
 и единый CI pipeline. Polyrepo имеет смысл, когда у сервисов независимые
 команды-владельцы и релизные циклы — здесь пока не так.
 
+Известные архитектурные решения — в [`docs/adr/`](docs/adr/README.md).
+Известный технический долг — в [`docs/tech-debt.md`](docs/tech-debt.md).
+
 ```
 taskflow/
 ├── backend/          # FastAPI application
@@ -78,4 +81,3 @@ Trunk-Based Development:
 - feature-ветки живут 1-3 дня: `feat/...`, `fix/...`, `chore/...`
 - Conventional Commits для автоматического changelog/версионирования
 - PR обязателен, прямые пуши в `main` запрещены (branch protection)
-test
