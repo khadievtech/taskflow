@@ -1,5 +1,7 @@
 # TaskFlow — Jira-like task management platform
 
+[![CI](https://github.com/khadievtech/taskflow/actions/workflows/ci.yml/badge.svg)](https://github.com/khadievtech/taskflow/actions/workflows/ci.yml)
+
 Pet-проект уровня Junior/Middle DevOps Engineer. Цель — пройти полный путь
 от разработки до production-grade деплоя: Docker → CI/CD → Observability →
 Kubernetes → IaC.
@@ -9,7 +11,7 @@ Kubernetes → IaC.
 - [x] Phase 0 — Repo structure & app skeleton
 - [x] Phase 0.5 — Postgres + SQLAlchemy + Alembic + Task CRUD
 - [x] Phase 1 — Containerization (Docker Compose)
-- [ ] Phase 2 — CI (lint, test, build)
+- [x] Phase 2 — CI (lint, test, build)
 - [ ] Phase 3 — CD (GHCR + деплой на home server)
 - [ ] Phase 4 — Observability (Prometheus/Grafana/Loki/Alertmanager)
 - [ ] Phase 5 — Nginx + TLS
