@@ -1,0 +1,77 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-taskflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-taskflow}
+      POSTGRES_DB: ${POSTGRES_DB:-taskflow}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-taskflow} -d ${POSTGRES_DB:-taskflow}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - taskflow-net
+    # unless-stopped — контейнер сам поднимется после перезагрузки домашнего
+    # ноутбука, но не будет пытаться бесконечно рестартовать, если вы
+    # осознанно остановили его сами (docker compose stop).
+    restart: unless-stopped
+
+  backend:
+    image: ghcr.io/${GHCR_OWNER}/taskflow-backend:latest
+    environment:
+      APP_NAME: TaskFlow API
+      ENVIRONMENT: production
+      DEBUG: "false"
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-taskflow}:${POSTGRES_PASSWORD:-taskflow}@db:5432/${POSTGRES_DB:-taskflow}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - taskflow-net
+    restart: unless-stopped
+    # Этот label читает Watchtower ниже — обновляет только помеченные
+    # контейнеры. db осознанно НЕ помечена: обновления мажорной версии
+    # Postgres без вашего контроля — плохая идея, БД обновляем руками.
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  frontend:
+    image: ghcr.io/${GHCR_OWNER}/taskflow-frontend:latest
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - taskflow-net
+    restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  # Watchtower следит за тегами образов в GHCR и сам делает pull + пересоздаёт
+  # контейнер, когда появляется новый — это и есть механизм "pull", который
+  # мы выбрали вместо push по SSH из GitHub Actions.
+  watchtower:
+    image: containrrr/watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --interval 60 --label-enable --cleanup
+    # --interval 60      — проверять раз в минуту (для pet-проекта достаточно)
+    # --label-enable     — трогать только контейнеры с label выше (не db)
+    # --cleanup          — удалять старые образы после обновления, чтобы не
+    #                      забить диск на домашнем ноутбуке со временем
+    networks:
+      - taskflow-net
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+
+networks:
+  taskflow-net:
+    driver: bridge

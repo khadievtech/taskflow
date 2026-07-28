@@ -20,8 +20,16 @@ CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
 # ---------------------------------------------------------------------------
 # build — компилирует статику. Отдельный от dev таргет, чтобы production-образ
 # не тащил за собой vite dev-server и devDependencies.
+#
+# VITE_API_URL передаётся как build-arg, а не обычная env-переменная контейнера:
+# Vite встраивает её значение прямо в JS-бандл на этапе `npm run build`.
+# Поменять её после сборки образа уже нельзя — только пересобрать образ
+# с новым значением. Это фундаментальное отличие от backend, где
+# pydantic-settings читает DATABASE_URL в рантайме при каждом старте контейнера.
 # ---------------------------------------------------------------------------
 FROM base AS build
+ARG VITE_API_URL=http://localhost:8000
+ENV VITE_API_URL=$VITE_API_URL
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
