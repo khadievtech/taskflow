@@ -1,0 +1,30 @@
+global:
+  # Как часто опрашивать цели. 15s — общепринятый компромисс: достаточно часто,
+  # чтобы заметить проблему, достаточно редко, чтобы не раздувать объём данных.
+  scrape_interval: 15s
+  # Как часто пересчитывать правила алертов (появятся в Phase 4c).
+  evaluation_interval: 15s
+  external_labels:
+    environment: home-prod
+
+scrape_configs:
+  # Prometheus всегда мониторит сам себя — если он деградирует, вы должны
+  # увидеть это в тех же графиках, а не узнать от пользователей.
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Метрики приложения. Обращаемся по имени сервиса backend — оно резолвится
+  # через DNS общей docker-сети, так же как backend обращается к db.
+  - job_name: taskflow-backend
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["backend:8000"]
+
+  # Метрики Postgres. Сама БД не умеет отдавать данные в формате Prometheus —
+  # для этого существует паттерн "экспортёр": отдельный процесс подключается
+  # к сервису своим родным протоколом и переводит внутреннюю статистику
+  # в метрики. Так же устроены экспортёры для Redis, Kafka, Nginx и прочего.
+  - job_name: postgres
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
