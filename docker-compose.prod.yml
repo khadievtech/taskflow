@@ -56,8 +56,18 @@ services:
   # Watchtower следит за тегами образов в GHCR и сам делает pull + пересоздаёт
   # контейнер, когда появляется новый — это и есть механизм "pull", который
   # мы выбрали вместо push по SSH из GitHub Actions.
+  #
+  # ВАЖНО про выбор образа: оригинальный containrrr/watchtower архивирован
+  # 17.12.2025 (авторы потеряли интерес к проекту) и несовместим с Docker 29+
+  # — его встроенный клиент говорит по API 1.25, который демон уже не принимает.
+  # nickfedor/watchtower — наиболее активно поддерживаемый форк, drop-in замена
+  # (те же лейблы, флаги и переменные), автонегоциирует версию API.
+  #
+  # Осознанное временное решение: авторы самого форка не рекомендуют Watchtower
+  # для production и советуют Kubernetes + CI/CD. Это наш Phase 7 — тогда
+  # Watchtower уйдёт, а его роль возьмут на себя Deployment'ы и rolling update.
   watchtower:
-    image: containrrr/watchtower
+    image: nickfedor/watchtower
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     command: --interval 60 --label-enable --cleanup
