@@ -83,5 +83,10 @@ volumes:
   postgres-data:
 
 networks:
+  # Сеть создаётся вне compose-файлов (docker network create taskflow-shared)
+  # и переиспользуется стеком мониторинга — см. docker-compose.observability.yml.
+  # Так Prometheus видит backend по DNS-имени сервиса, оставаясь при этом
+  # в отдельном compose-проекте с независимым жизненным циклом.
   taskflow-net:
-    driver: bridge
+    external: true
+    name: taskflow-shared

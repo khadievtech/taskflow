@@ -1,0 +1,66 @@
+services:
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    volumes:
+      - ./observability/prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      # Ограничение хранения обязательно: без него база метрик растёт
+      # бесконечно и со временем заполнит диск домашней машины.
+      - --storage.tsdb.retention.time=15d
+      - --storage.tsdb.path=/prometheus
+      # Позволяет перечитать конфиг без перезапуска контейнера:
+      # curl -X POST http://localhost:9090/-/reload
+      - --web.enable-lifecycle
+    ports:
+      - "9090:9090"
+    networks:
+      - taskflow-net
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.5.1
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      # Отключаем отправку анонимной статистики и проверку обновлений —
+      # лишние исходящие запросы от инфраструктурного сервиса не нужны.
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - taskflow-net
+    restart: unless-stopped
+
+  # Экспортёр: Postgres не умеет отдавать метрики в формате Prometheus, поэтому
+  # отдельный процесс подключается к БД обычным SQL, читает системные вьюхи
+  # (pg_stat_database и прочие) и публикует их как метрики. Тот же паттерн
+  # используется для Redis, Kafka, Nginx, RabbitMQ.
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.16.0
+    environment:
+      DATA_SOURCE_NAME: postgresql://${POSTGRES_USER:-taskflow}:${POSTGRES_PASSWORD:-taskflow}@db:5432/${POSTGRES_DB:-taskflow}?sslmode=disable
+    networks:
+      - taskflow-net
+    restart: unless-stopped
+
+volumes:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  # external: true означает, что сеть создаётся вне этого compose-файла и
+  # существует независимо от него. Так два разных compose-проекта (приложение
+  # и мониторинг) оказываются в одной сети и видят друг друга по именам
+  # сервисов — Prometheus может обратиться к backend:8000, хотя backend
+  # описан в другом файле.
+  taskflow-net:
+    external: true
+    name: taskflow-shared

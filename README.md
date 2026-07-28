@@ -13,7 +13,10 @@ Kubernetes → IaC.
 - [x] Phase 1 — Containerization (Docker Compose)
 - [x] Phase 2 — CI (lint, test, build)
 - [x] Phase 3 — CD (GHCR + деплой на home server)
-- [ ] Phase 4 — Observability (Prometheus/Grafana/Loki/Alertmanager)
+- [~] Phase 4 — Observability
+  - [x] 4a — метрики: инструментация, Prometheus, Grafana
+  - [ ] 4b — логи: Loki
+  - [ ] 4c — алерты: Alertmanager
 - [ ] Phase 5 — Nginx + TLS
 - [ ] Phase 6 — Auth (Keycloak)
 - [ ] Phase 7 — Kubernetes
@@ -95,9 +98,37 @@ docker compose logs -f backend
 git clone git@github.com:khadievtech/taskflow.git
 cd taskflow
 cp .env.prod.example .env.prod
-nano .env.prod   # заполнить реальный IP сервера в CORS_ORIGINS
-docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+nano .env.prod   # заполнить реальный IP сервера и пароль Grafana
+
+# Общая сеть для стека приложения и стека мониторинга — создаётся один раз.
+docker network create taskflow-shared
+
+docker compose -p taskflow-prod -f docker-compose.prod.yml --env-file .env.prod up -d
 ```
+
+## Мониторинг (Phase 4)
+
+Стек наблюдения живёт в отдельном compose-файле и подключается к той же
+сети `taskflow-shared`. Причина разделения: система наблюдения должна
+переживать сбои того, за чем наблюдает — если Prometheus падает вместе с
+приложением, теряется именно та история метрик, которая нужна для разбора
+инцидента.
+
+```bash
+docker compose -p taskflow-obs -f docker-compose.observability.yml --env-file .env.prod up -d
+```
+
+- Grafana: http://localhost:3000 (дашборд `TaskFlow API` создаётся автоматически)
+- Prometheus: http://localhost:9090 (проверить цели: Status → Targets)
+- Метрики приложения: http://localhost:8000/metrics
+
+Дашборд построен по методике **четырёх золотых сигналов** (Google SRE):
+traffic, errors, latency, saturation. Это те четыре вещи, с которых
+начинают разбор любого инцидента.
+
+Конфигурация Grafana задаётся файлами в `observability/grafana/provisioning`,
+а не кликами в интерфейсе — источник данных и дашборд воспроизводятся
+автоматически на любой машине.
 
 Дальше обновления происходят сами: PR → merge → CI → CD собирает и
 публикует образы → Watchtower на сервере находит новый тег в течение
