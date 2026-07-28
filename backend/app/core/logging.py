@@ -102,7 +102,11 @@ def setup_logging(level: str = "INFO", sql_echo: bool = False) -> None:
             "loggers": {
                 "uvicorn": uvicorn_logger,
                 "uvicorn.error": uvicorn_logger,
-                "uvicorn.access": uvicorn_logger,
+                # uvicorn.access заглушён: структурированный access-лог пишет
+                # RequestContextMiddleware, где ещё доступен request_id и есть
+                # отдельные поля method/path/status_code/duration_ms. Оставить
+                # оба логгера означало бы дублировать каждую запись.
+                "uvicorn.access": {"level": "WARNING", "propagate": False},
                 # INFO у sqlalchemy.engine означает "логировать каждый SQL".
                 # В production это недопустимо: огромный объём и риск утечки
                 # данных из параметров запроса в логи.

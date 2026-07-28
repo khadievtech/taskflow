@@ -135,14 +135,26 @@ traffic, errors, latency, saturation. Это те четыре вещи, с ко
 
 Приложение пишет структурированные JSON-логи в stdout, Alloy читает их из
 Docker и отправляет в Loki. Каждому запросу присваивается `request_id`,
-который проходит через все слои (включая SQL-запросы) и возвращается клиенту
-в заголовке `X-Request-ID`.
+он попадает в access-лог и возвращается клиенту в заголовке `X-Request-ID`.
+При `DEBUG=true` тот же идентификатор появляется и в логах SQL-запросов.
+
+Access-лог пишет `RequestContextMiddleware`, а не uvicorn: логгер uvicorn
+работает на уровне ASGI-сервера, вне области видимости `ContextVar`, поэтому
+`request_id` в его строки не попадает. Заодно middleware отдаёт отдельные
+поля вместо текстовой строки:
+
+```json
+{"level":"INFO","logger":"app.access","message":"request completed",
+ "request_id":"...","method":"GET","path":"/api/v1/tasks",
+ "status_code":200,"duration_ms":4.71}
+```
 
 Полезные запросы в Grafana → Explore → Loki:
 
 ```
 {service="backend"}                          все логи backend
 {service="backend"} | level="ERROR"          только ошибки
+{service="backend"} | json | duration_ms > 100    медленные запросы
 {service="backend"} |= "trace-abc"           все строки одного запроса
 {project="taskflow-prod"}                    логи всего стека приложения
 ```
