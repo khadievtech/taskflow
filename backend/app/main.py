@@ -5,7 +5,7 @@ from prometheus_fastapi_instrumentator import Instrumentator, metrics
 from app.api.v1.router import api_router
 from app.core.config import get_settings
 from app.core.logging import setup_logging
-from app.core.middleware import RequestIdMiddleware
+from app.core.middleware import RequestContextMiddleware
 
 settings = get_settings()
 
@@ -22,7 +22,7 @@ app = FastAPI(
 )
 
 # Порядок регистрации важен: Starlette выполняет middleware в порядке,
-# обратном добавлению, поэтому RequestIdMiddleware добавляем последним —
+# обратном добавлению, поэтому RequestContextMiddleware добавляем последним —
 # так он окажется самым внешним, и request_id будет доступен уже в CORS-слое
 # и во всех логах, включая логи об ошибках.
 app.add_middleware(
@@ -32,7 +32,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.add_middleware(RequestIdMiddleware)
+app.add_middleware(RequestContextMiddleware)
 
 app.include_router(api_router)
 

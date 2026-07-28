@@ -1,6 +1,7 @@
 import json
 import logging
 
+import pytest
 from httpx import AsyncClient
 
 from app.core.logging import JsonFormatter, request_id_var
@@ -81,3 +82,64 @@ def test_formatter_serialises_exceptions() -> None:
 
     payload = json.loads(JsonFormatter().format(record))
     assert "ValueError: boom" in payload["exception"]
+
+
+@pytest.fixture
+def access_logs():
+    """
+    Перехватывает записи app.access, форматируя их тем же JsonFormatter, что и
+    в проде. Форматирование происходит синхронно внутри logger.log(), то есть
+    пока ContextVar ещё установлен — иначе request_id в вывод не попал бы.
+    """
+    captured: list[str] = []
+
+    class Capture(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            captured.append(JsonFormatter().format(record))
+
+    handler = Capture()
+    logger = logging.getLogger("app.access")
+    logger.addHandler(handler)
+    previous = logger.level
+    logger.setLevel(logging.INFO)
+    try:
+        yield captured
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(previous)
+
+
+async def test_access_log_carries_request_id_and_fields(
+    client: AsyncClient, access_logs: list[str]
+) -> None:
+    """
+    Регрессионный тест на реальный баг: в первой версии access-лог писал
+    uvicorn на уровне ASGI-сервера, то есть уже вне области видимости
+    ContextVar. Заголовок X-Request-ID возвращался, но ни одна строка логов
+    в production не содержала request_id — корреляция была бесполезна.
+    """
+    await client.get("/api/v1/health/live", headers={"X-Request-ID": "corr-1"})
+
+    entries = [json.loads(line) for line in access_logs]
+    completed = [e for e in entries if e.get("message") == "request completed"]
+
+    assert completed, "access-лог не был записан"
+    entry = completed[0]
+    assert entry["request_id"] == "corr-1"
+    assert entry["method"] == "GET"
+    assert entry["path"] == "/api/v1/health/live"
+    assert entry["status_code"] == 200
+    assert isinstance(entry["duration_ms"], float)
+
+
+async def test_metrics_scrapes_are_not_logged(
+    client: AsyncClient, access_logs: list[str]
+) -> None:
+    """
+    Prometheus скрейпит /metrics каждые 15 секунд. Без фильтра эти записи
+    утопили бы полезные логи в шуме от системы мониторинга.
+    """
+    await client.get("/metrics")
+
+    paths = [json.loads(line).get("path") for line in access_logs]
+    assert "/metrics" not in paths
