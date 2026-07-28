@@ -1,6 +1,9 @@
 // Все обращения к backend идут через одну точку — легко подменить
 // базовый URL при переходе на Docker/Kubernetes, не трогая компоненты.
-const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
+// || вместо ?? намеренно: если VITE_API_URL не задан при сборке образа,
+// Vite подставит пустую строку (не undefined), и ?? её бы не перехватил —
+// фронтенд стучался бы по относительному пути в nginx вместо backend.
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 export interface HealthStatus {
   status: 'ok' | 'error';
