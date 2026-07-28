@@ -4,8 +4,14 @@ from prometheus_fastapi_instrumentator import Instrumentator, metrics
 
 from app.api.v1.router import api_router
 from app.core.config import get_settings
+from app.core.logging import setup_logging
+from app.core.middleware import RequestIdMiddleware
 
 settings = get_settings()
+
+# Настраиваем логирование до создания приложения, чтобы сообщения самого
+# старта (включая логи uvicorn) уже были в JSON.
+setup_logging("DEBUG" if settings.debug else "INFO", sql_echo=settings.debug)
 
 app = FastAPI(
     title=settings.app_name,
@@ -15,6 +21,10 @@ app = FastAPI(
     redoc_url=None,
 )
 
+# Порядок регистрации важен: Starlette выполняет middleware в порядке,
+# обратном добавлению, поэтому RequestIdMiddleware добавляем последним —
+# так он окажется самым внешним, и request_id будет доступен уже в CORS-слое
+# и во всех логах, включая логи об ошибках.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -22,6 +32,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(RequestIdMiddleware)
 
 app.include_router(api_router)
 

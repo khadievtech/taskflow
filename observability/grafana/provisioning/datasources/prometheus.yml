@@ -17,3 +17,20 @@ datasources:
     isDefault: true
     # Позволяет заменить настройки при перезапуске, если файл изменился.
     editable: false
+
+  - name: Loki
+    type: loki
+    uid: loki
+    access: proxy
+    url: http://loki:3100
+    editable: false
+    jsonData:
+      # Связывает логи с трейсами: если в строке лога встречается request_id,
+      # Grafana превратит его в кликабельную ссылку. Пока ведёт на поиск по
+      # тому же Loki, а после внедрения OpenTelemetry (за рамками этого этапа)
+      # сюда подставляется источник трейсов.
+      derivedFields:
+        - name: request_id
+          matcherRegex: '"request_id":\s*"([^"]+)"'
+          datasourceUid: loki
+          url: '$${__value.raw}'
