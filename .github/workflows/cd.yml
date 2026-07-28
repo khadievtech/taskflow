@@ -17,6 +17,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # QEMU нужен, чтобы amd64-раннер GitHub мог собирать arm64-образ через
+      # эмуляцию. buildx — расширенный сборщик, умеющий multi-platform manifest.
+      # Итог: один тег :latest содержит варианты под обе архитектуры, и docker
+      # pull сам выбирает нужный — образ заработает и на Apple Silicon (arm64),
+      # и на старом ноутбуке с Intel (amd64), без предупреждений о платформе.
+      #
+      # Trade-off: arm64-часть собирается под эмуляцией и потому медленно
+      # (минуты вместо секунд). Быстрее было бы собирать каждую архитектуру на
+      # нативном раннере (ubuntu-24.04-arm) и сшивать манифест отдельным шагом,
+      # но это усложняет workflow — для частоты коммитов pet-проекта не нужно.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -34,6 +47,7 @@ jobs:
           context: ./backend
           target: production
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: |
             ghcr.io/${{ github.repository_owner }}/taskflow-backend:latest
             ghcr.io/${{ github.repository_owner }}/taskflow-backend:${{ steps.vars.outputs.sha_short }}
@@ -42,6 +56,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -60,6 +77,7 @@ jobs:
           context: ./frontend
           target: production
           push: true
+          platforms: linux/amd64,linux/arm64
           # PROD_API_URL — repository variable (Settings → Secrets and
           # variables → Actions → Variables), не secret: это не чувствительные
           # данные, а просто адрес backend, который увидит браузер пользователя.
