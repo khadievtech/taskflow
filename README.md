@@ -74,6 +74,35 @@ docker compose down -v
 docker compose logs -f backend
 ```
 
+## Деплой на домашний сервер (Phase 3)
+
+Образы собираются и публикуются в GHCR автоматически при мердже в `main`
+(см. `.github/workflows/cd.yml`). Домашний сервер сам подтягивает новые
+образы через **Watchtower** (pull-модель, без открытых портов наружу —
+см. обоснование в истории обсуждения проекта).
+
+**Одноразовая настройка перед первым деплоем:**
+1. В GitHub: Settings → Secrets and variables → Actions → вкладка Variables →
+   New repository variable → `PROD_API_URL` = `http://<IP-домашнего-сервера-в-локальной-сети>:8000`
+2. После первого успешного запуска `cd.yml`: GitHub → Packages → открыть
+   `taskflow-backend` и `taskflow-frontend` по отдельности → Package settings →
+   Change visibility → **Public** (по умолчанию GHCR публикует пакеты
+   приватными, даже если репозиторий публичный — иначе Watchtower не
+   сможет скачать образ анонимно).
+
+**На самом домашнем сервере** (Ubuntu, с установленным Docker):
+```bash
+git clone git@github.com:khadievtech/taskflow.git
+cd taskflow
+cp .env.prod.example .env.prod
+nano .env.prod   # заполнить реальный IP сервера в CORS_ORIGINS
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+```
+
+Дальше обновления происходят сами: PR → merge → CI → CD собирает и
+публикует образы → Watchtower на сервере находит новый тег в течение
+минуты → перезапускает контейнер с новым образом.
+
 ## Git workflow
 
 Trunk-Based Development:
