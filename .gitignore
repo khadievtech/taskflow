@@ -19,10 +19,11 @@ build/
 # Env & secrets
 .env
 .env.*
-!.env.example
+!.env*.example
 
 # Docker
 *.pid
+
 # Logs
 *.log
 
