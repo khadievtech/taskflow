@@ -15,7 +15,7 @@ Kubernetes → IaC.
 - [x] Phase 3 — CD (GHCR + деплой на home server)
 - [~] Phase 4 — Observability
   - [x] 4a — метрики: инструментация, Prometheus, Grafana
-  - [ ] 4b — логи: Loki
+  - [x] 4b — логи: структурированный JSON, Alloy, Loki
   - [ ] 4c — алерты: Alertmanager
 - [ ] Phase 5 — Nginx + TLS
 - [ ] Phase 6 — Auth (Keycloak)
@@ -120,6 +120,7 @@ docker compose -p taskflow-obs -f docker-compose.observability.yml --env-file .e
 
 - Grafana: http://localhost:3000 (дашборд `TaskFlow API` создаётся автоматически)
 - Prometheus: http://localhost:9090 (проверить цели: Status → Targets)
+- Alloy: http://localhost:12345 (граф конвейера логов — первое место для отладки)
 - Метрики приложения: http://localhost:8000/metrics
 
 Дашборд построен по методике **четырёх золотых сигналов** (Google SRE):
@@ -127,8 +128,28 @@ traffic, errors, latency, saturation. Это те четыре вещи, с ко
 начинают разбор любого инцидента.
 
 Конфигурация Grafana задаётся файлами в `observability/grafana/provisioning`,
-а не кликами в интерфейсе — источник данных и дашборд воспроизводятся
+а не кликами в интерфейсе — источники данных и дашборд воспроизводятся
 автоматически на любой машине.
+
+### Логи
+
+Приложение пишет структурированные JSON-логи в stdout, Alloy читает их из
+Docker и отправляет в Loki. Каждому запросу присваивается `request_id`,
+который проходит через все слои (включая SQL-запросы) и возвращается клиенту
+в заголовке `X-Request-ID`.
+
+Полезные запросы в Grafana → Explore → Loki:
+
+```
+{service="backend"}                          все логи backend
+{service="backend"} | level="ERROR"          только ошибки
+{service="backend"} |= "trace-abc"           все строки одного запроса
+{project="taskflow-prod"}                    логи всего стека приложения
+```
+
+`request_id` сознательно не является меткой Loki: он уникален для каждого
+запроса, и метка из него породила бы миллионы потоков. Метками сделаны только
+низкокардинальные поля — `level`, `logger`, `service`, `container`.
 
 Дальше обновления происходят сами: PR → merge → CI → CD собирает и
 публикует образы → Watchtower на сервере находит новый тег в течение

@@ -19,6 +19,49 @@ services:
       - taskflow-net
     restart: unless-stopped
 
+  loki:
+    image: grafana/loki:3.7.1
+    volumes:
+      - ./observability/loki:/etc/loki:ro
+      - loki-data:/loki
+    command: -config.file=/etc/loki/loki-config.yml
+    ports:
+      - "3100:3100"
+    networks:
+      - taskflow-net
+    restart: unless-stopped
+
+  # Alloy — сборщик логов, заменивший Promtail (EOL 2 марта 2026).
+  alloy:
+    image: grafana/alloy:v1.17.0
+    volumes:
+      - ./observability/alloy:/etc/alloy:ro
+      # Сокет Docker нужен, чтобы обнаруживать контейнеры и читать их логи.
+      # ro ограничивает запись, но даже чтение сокета — существенная привилегия:
+      # через него виден весь список контейнеров и их вывод. На реальном
+      # production-хосте между агентом и сокетом ставят docker-socket-proxy,
+      # разрешающий только нужные API-эндпоинты.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloy-data:/var/lib/alloy/data
+    # root нужен для чтения сокета: образ Alloy по умолчанию работает от
+    # непривилегированного пользователя (UID 473), которому сокет недоступен.
+    user: root
+    command:
+      - run
+      # Без listen-addr 0.0.0.0 отладочный интерфейс Alloy не виден с хоста.
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    ports:
+      # Отладочный UI: показывает граф компонентов и что реально течёт по
+      # конвейеру. Первое место, куда смотреть, если логи не доходят до Loki.
+      - "12345:12345"
+    depends_on:
+      - loki
+    networks:
+      - taskflow-net
+    restart: unless-stopped
+
   grafana:
     image: grafana/grafana:11.5.1
     environment:
@@ -35,6 +78,7 @@ services:
       - "3000:3000"
     depends_on:
       - prometheus
+      - loki
     networks:
       - taskflow-net
     restart: unless-stopped
@@ -54,6 +98,8 @@ services:
 volumes:
   prometheus-data:
   grafana-data:
+  loki-data:
+  alloy-data:
 
 networks:
   # external: true означает, что сеть создаётся вне этого compose-файла и

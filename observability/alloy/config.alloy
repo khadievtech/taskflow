@@ -1,0 +1,91 @@
+// Grafana Alloy — сборщик логов, заменивший Promtail (тот достиг end-of-life
+// 2 марта 2026). Alloy это дистрибутив OpenTelemetry Collector: один агент для
+// логов, метрик и трейсов вместо трёх разных.
+//
+// Конфигурация описывает поток данных как цепочку компонентов: каждый
+// компонент явно указывает, кому передаёт результат через forward_to.
+// Ничего не работает "по соглашению" — все связи проговариваются.
+
+// 1. Обнаружение: спрашиваем у Docker список работающих контейнеров.
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+  refresh_interval = "10s"
+}
+
+// 2. Превращаем внутренние метаданные Docker в человекочитаемые метки.
+discovery.relabel "containers" {
+  targets = []
+
+  // Docker отдаёт имя контейнера с ведущим слэшем ("/taskflow-prod-backend-1"),
+  // регулярка его срезает.
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+
+  // Compose проставляет каждому контейнеру метки с именем проекта и сервиса —
+  // используем их, чтобы в Loki можно было фильтровать по service="backend"
+  // независимо от того, как Compose пронумеровал контейнер.
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    target_label  = "project"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+}
+
+// 3. Чтение логов обнаруженных контейнеров.
+loki.source.docker "containers" {
+  host          = "unix:///var/run/docker.sock"
+  targets       = discovery.docker.containers.targets
+  relabel_rules = discovery.relabel.containers.rules
+  forward_to    = [loki.process.parse.receiver]
+}
+
+// 4. Обработка: разбираем JSON-логи приложения и поднимаем часть полей в метки.
+loki.process "parse" {
+  // Извлекаем поля из JSON-строки. На не-JSON строках (логи Postgres, Grafana)
+  // стадия просто ничего не извлечёт и не сломает поток.
+  stage.json {
+    expressions = {
+      level  = "level",
+      logger = "logger",
+    }
+  }
+
+  // ВАЖНО про выбор меток. В Loki, как и в Prometheus, каждая уникальная
+  // комбинация меток создаёт отдельный поток, и высокая кардинальность убивает
+  // производительность. Поэтому в метки идут только поля с малым числом
+  // значений: level (5 вариантов), logger (единицы).
+  //
+  // request_id в метки НЕ поднимается сознательно — он уникален для каждого
+  // запроса, и метка из него породила бы миллионы потоков. Он остаётся внутри
+  // строки лога и ищется полнотекстовым фильтром:
+  //   {service="backend"} |= "trace-abc"
+  // либо через парсинг на этапе запроса:
+  //   {service="backend"} | json | request_id="trace-abc"
+  //
+  // Это и есть главное архитектурное отличие Loki от Elasticsearch: Loki
+  // индексирует только метки, а содержимое строк хранит сжатым и сканирует
+  // при запросе. Отсюда кратно меньший расход ресурсов — критично для
+  // домашнего сервера, где Elasticsearch съел бы всю память.
+  stage.labels {
+    values = {
+      level  = "",
+      logger = "",
+    }
+  }
+
+  forward_to = [loki.write.local.receiver]
+}
+
+// 5. Отправка в Loki.
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
