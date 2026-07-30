@@ -16,7 +16,7 @@ Kubernetes → IaC.
 - [~] Phase 4 — Observability
   - [x] 4a — метрики: инструментация, Prometheus, Grafana
   - [x] 4b — логи: структурированный JSON, Alloy, Loki
-  - [ ] 4c — алерты: Alertmanager
+  - [x] 4c — алерты: Prometheus rules, Alertmanager, Telegram
 - [ ] Phase 5 — Nginx + TLS
 - [ ] Phase 6 — Auth (Keycloak)
 - [ ] Phase 7 — Kubernetes
@@ -120,6 +120,7 @@ docker compose -p taskflow-obs -f docker-compose.observability.yml --env-file .e
 
 - Grafana: http://localhost:3000 (дашборд `TaskFlow API` создаётся автоматически)
 - Prometheus: http://localhost:9090 (проверить цели: Status → Targets)
+- Alertmanager: http://localhost:9093 (активные алерты, Silence)
 - Alloy: http://localhost:12345 (граф конвейера логов — первое место для отладки)
 - Метрики приложения: http://localhost:8000/metrics
 
@@ -162,6 +163,46 @@ Access-лог пишет `RequestContextMiddleware`, а не uvicorn: логге
 `request_id` сознательно не является меткой Loki: он уникален для каждого
 запроса, и метка из него породила бы миллионы потоков. Метками сделаны только
 низкокардинальные поля — `level`, `logger`, `service`, `container`.
+
+### Алерты
+
+Правила в `observability/prometheus/rules/alerts.yml`, доставка через
+Alertmanager в Telegram.
+
+Настройка перед первым запуском:
+
+```bash
+# 1. Создать бота: написать @BotFather в Telegram, команда /newbot,
+#    получить токен вида 123456789:AAH...
+echo "ВАШ_ТОКЕН" > observability/alertmanager/telegram_token
+
+# 2. Написать боту любое сообщение, затем узнать chat_id:
+curl -s "https://api.telegram.org/botВАШ_ТОКЕН/getUpdates" | grep -o '"id":[-0-9]*' | head -1
+
+# 3. Скопировать шаблон конфига и вписать chat_id
+cp observability/alertmanager/alertmanager.yml.example observability/alertmanager/alertmanager.yml
+nano observability/alertmanager/alertmanager.yml
+```
+
+Оба файла — `alertmanager.yml` и `telegram_token` — в `.gitignore`:
+первый содержит персональный chat_id, второй секретный токен.
+
+Текущие правила:
+
+| Алерт | Условие | Severity |
+|---|---|---|
+| `BackendDown` | цель недоступна 2 мин | critical |
+| `PostgresDown` | экспортёр недоступен 2 мин | critical |
+| `HighErrorRate` | доля 5xx выше 5% в течение 5 мин | critical |
+| `HighLatency` | p95 выше 500 мс в течение 10 мин | warning |
+| `PostgresConnectionsHigh` | занято 80% соединений 10 мин | warning |
+
+Все правила написаны на **симптомы**, которые ощущает пользователь, а не на
+причины внутри системы. «Пятая часть запросов отвечает ошибкой» — алерт.
+«Процесс перезапустился» — не алерт: если пользователи не заметили, будить
+человека не за что. Каждое ложное срабатывание снижает доверие ко всей
+системе оповещений, и через месяц шума реальный инцидент пропускают —
+это alert fatigue.
 
 Дальше обновления происходят сами: PR → merge → CI → CD собирает и
 публикует образы → Watchtower на сервере находит новый тег в течение

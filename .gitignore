@@ -21,6 +21,11 @@ build/
 .env.*
 !.env*.example
 
+# Alertmanager: реальный конфиг содержит chat_id, токен бота — отдельным файлом.
+# В git только шаблон alertmanager.yml.example.
+observability/alertmanager/alertmanager.yml
+observability/alertmanager/telegram_token
+
 # Docker
 *.pid
 

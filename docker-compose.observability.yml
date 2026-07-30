@@ -2,6 +2,8 @@ services:
   prometheus:
     image: prom/prometheus:v3.1.0
     volumes:
+      # Монтируется весь каталог, включая подкаталог rules/ — на него
+      # ссылается rule_files в prometheus.yml.
       - ./observability/prometheus:/etc/prometheus:ro
       - prometheus-data:/prometheus
     command:
@@ -15,6 +17,27 @@ services:
       - --web.enable-lifecycle
     ports:
       - "9090:9090"
+    depends_on:
+      - alertmanager
+    networks:
+      - taskflow-net
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    volumes:
+      # Монтируем каталог целиком: внутри и конфиг, и файл с токеном бота,
+      # на который ссылается bot_token_file.
+      - ./observability/alertmanager:/etc/alertmanager:ro
+      - alertmanager-data:/alertmanager
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+      # Нужен для корректных ссылок в уведомлениях и для работы кнопки
+      # Silence в интерфейсе.
+      - --web.external-url=http://localhost:9093
+    ports:
+      - "9093:9093"
     networks:
       - taskflow-net
     restart: unless-stopped
@@ -96,6 +119,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  alertmanager-data:
   prometheus-data:
   grafana-data:
   loki-data:
