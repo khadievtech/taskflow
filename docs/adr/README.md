@@ -12,6 +12,7 @@ ADR — это ответ, живущий в git рядом с кодом, а н
 
 - [0001 — Отложить Repository Pattern](0001-defer-repository-pattern.md)
 - [0002 — Pull-based деплой через Watchtower](0002-pull-based-deployment.md)
+- [0003 — Отложить метрики контейнеров (cAdvisor)](0003-defer-container-metrics.md)
 
 ## Малая заметка (без отдельного ADR)
 
