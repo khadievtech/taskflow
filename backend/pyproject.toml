@@ -11,6 +11,13 @@ dependencies = [
     "asyncpg>=0.30",
     "alembic>=1.14",
     "prometheus-fastapi-instrumentator>=7.0",
+    # pwdlib вместо passlib: passlib не поддерживается с 2020, использует
+    # удалённый в Python 3.13 модуль crypt и ломается на bcrypt 5.0.
+    "pwdlib[argon2]>=0.2",
+    # PyJWT вместо python-jose: развивается pyca, у python-jose нет релизов.
+    "pyjwt>=2.10",
+    # Нужен pydantic для типа EmailStr.
+    "email-validator>=2.2",
 ]
 
 [project.optional-dependencies]

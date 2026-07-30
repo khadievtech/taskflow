@@ -8,5 +8,6 @@ Alembic просто не увидит новую таблицу и autogenerate
 """
 
 from app.models.task import Task, TaskStatus
+from app.models.user import User
 
-__all__ = ["Task", "TaskStatus"]
+__all__ = ["Task", "TaskStatus", "User"]

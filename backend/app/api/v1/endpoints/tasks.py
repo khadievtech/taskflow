@@ -3,12 +3,19 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import get_current_user
 from app.db.session import get_db_session
 from app.models.task import Task
 from app.schemas.task import TaskCreate, TaskRead, TaskUpdate
 from app.services import task_service
 
-router = APIRouter(tags=["tasks"])
+# dependencies на уровне роутера, а не на каждой функции: так невозможно
+# случайно добавить новый эндпоинт и забыть его защитить. Защита по умолчанию
+# надёжнее, чем защита по списку — это принцип secure by default.
+router = APIRouter(
+    tags=["tasks"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 async def _get_task_or_404(

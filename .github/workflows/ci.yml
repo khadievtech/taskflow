@@ -31,6 +31,9 @@ jobs:
         working-directory: backend
     env:
       DATABASE_URL: postgresql+asyncpg://taskflow:taskflow@localhost:5432/taskflow
+      # Значение для тестов — не секрет: подписанные им токены живут только
+      # внутри одного прогона CI и никуда не уезжают.
+      JWT_SECRET_KEY: ci-test-secret-not-used-anywhere-else
     steps:
       - uses: actions/checkout@v4
 
