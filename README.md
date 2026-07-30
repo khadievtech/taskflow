@@ -13,7 +13,7 @@ Kubernetes → IaC.
 - [x] Phase 1 — Containerization (Docker Compose)
 - [x] Phase 2 — CI (lint, test, build)
 - [x] Phase 3 — CD (GHCR + деплой на home server)
-- [~] Phase 4 — Observability
+- [x] Phase 4 — Observability
   - [x] 4a — метрики: инструментация, Prometheus, Grafana
   - [x] 4b — логи: структурированный JSON, Alloy, Loki
   - [x] 4c — алерты: Prometheus rules, Alertmanager, Telegram
