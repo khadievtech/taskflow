@@ -108,6 +108,28 @@ docker network create taskflow-shared
 docker compose -p taskflow-prod -f docker-compose.prod.yml --env-file .env.prod up -d
 ```
 
+## Приложение
+
+Kanban-доска работает с реальным API: задачи создаются через форму,
+переводятся между статусами кнопками, удаляются. Обрабатываются состояния
+загрузки и ошибки — с возможностью повторить запрос.
+
+```
+frontend/src/
+├── api/
+│   ├── client.ts        # базовый путь API (относительный)
+│   └── tasks.ts         # list / create / update / delete + разбор ошибок
+├── hooks/useTasks.ts     # состояние списка, мутации без полного перезапроса
+└── components/
+    ├── CreateTaskForm.tsx  (+ тесты)
+    ├── TaskCard.tsx        (+ тесты)
+    ├── TaskBoard.tsx
+    └── StatusPanel.tsx
+```
+
+Тесты фронтенда: `cd frontend && npm test` (vitest + jsdom +
+@testing-library/react, 12 тестов, прогоняются в CI).
+
 ## Обратный прокси (Phase 5a)
 
 Снаружи открыт единственный порт 80, за ним nginx маршрутизирует запросы:

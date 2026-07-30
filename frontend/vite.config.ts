@@ -1,5 +1,7 @@
 import react from '@vitejs/plugin-react'
-import { defineConfig } from 'vite'
+// defineConfig берётся из vitest/config, а не из vite: только эта версия
+// знает про секцию test. Импорт из 'vite' даёт ошибку типов TS2769.
+import { defineConfig } from 'vitest/config'
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -19,5 +21,13 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+  },
+  test: {
+    // jsdom подменяет браузерное окружение: даёт document, window и DOM API,
+    // которых нет в Node. Без него компоненты React невозможно отрендерить
+    // в тесте.
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: ['./src/test-setup.ts'],
   },
 })
