@@ -28,7 +28,10 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-taskflow}:${POSTGRES_PASSWORD:-taskflow}@db:5432/${POSTGRES_DB:-taskflow}
       CORS_ORIGINS: ${CORS_ORIGINS}
     ports:
-      - "8000:8000"
+      # Привязка к 127.0.0.1 вместо 0.0.0.0: порт доступен для отладки с самой
+      # машины (curl, psql), но не виден другим устройствам в локальной сети.
+      # Внешний трафик идёт только через reverse-proxy.
+      - "127.0.0.1:8000:8000"
     depends_on:
       db:
         condition: service_healthy
@@ -43,8 +46,10 @@ services:
 
   frontend:
     image: ghcr.io/${GHCR_OWNER}/taskflow-frontend:latest
-    ports:
-      - "80:80"
+    # Порт наружу не публикуется: nginx фронтенда доступен только внутри
+    # docker-сети, а внешние запросы приходят через reverse-proxy.
+    expose:
+      - "80"
     depends_on:
       - backend
     networks:
@@ -52,6 +57,27 @@ services:
     restart: unless-stopped
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
+
+  # Обратный прокси — единственная точка входа снаружи. Конфиг лежит файлом
+  # на диске (proxy/nginx.conf), а не в собственном образе: правка маршрута
+  # не требует полного цикла CI/CD, достаточно nginx -s reload.
+  reverse-proxy:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./proxy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - taskflow-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/api/v1/health/live"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
 
   # Watchtower следит за тегами образов в GHCR и сам делает pull + пересоздаёт
   # контейнер, когда появляется новый — это и есть механизм "pull", который

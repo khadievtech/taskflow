@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { API_URL, checkBackendHealth } from '../api/client';
+import { API_BASE, checkBackendHealth } from '../api/client';
 
 type ConnectionState = 'checking' | 'online' | 'offline';
 
@@ -66,7 +66,7 @@ export function StatusPanel() {
       />
       <span>{label}</span>
       <span style={{ opacity: 0.5 }}>·</span>
-      <span style={{ opacity: 0.7 }}>{API_URL}</span>
+      <span style={{ opacity: 0.7 }}>{API_BASE || 'same origin'}</span>
       {lastChecked && (
         <>
           <span style={{ opacity: 0.5 }}>·</span>

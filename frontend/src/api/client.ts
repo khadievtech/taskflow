@@ -1,9 +1,18 @@
-// Все обращения к backend идут через одну точку — легко подменить
-// базовый URL при переходе на Docker/Kubernetes, не трогая компоненты.
-// || вместо ?? намеренно: если VITE_API_URL не задан при сборке образа,
-// Vite подставит пустую строку (не undefined), и ?? её бы не перехватил —
-// фронтенд стучался бы по относительному пути в nginx вместо backend.
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+// Обращения к API идут ОТНОСИТЕЛЬНЫМИ путями, без указания хоста.
+//
+// Почему так, а не через VITE_API_URL с абсолютным адресом:
+// 1. Vite подставляет значение переменной прямо в JS-бандл на этапе сборки.
+//    Абсолютный адрес пришлось бы фиксировать при сборке образа, и один и
+//    тот же образ нельзя было бы использовать в разных окружениях. Смена IP
+//    домашнего сервера требовала бы пересборки.
+// 2. Относительный путь работает в любом окружении без изменений: маршрут
+//    /api/... разбирает nginx в production и dev-прокси Vite в разработке.
+// 3. Запрос идёт на тот же origin, что и страница, поэтому CORS не участвует.
+//
+// Переопределение через VITE_API_URL оставлено для нештатных случаев —
+// например, если фронтенд понадобится указать на удалённый backend, минуя
+// прокси. По умолчанию пусто, то есть относительный путь.
+const API_BASE = import.meta.env.VITE_API_URL ?? '';
 
 export interface HealthStatus {
   status: 'ok' | 'error';
@@ -11,7 +20,7 @@ export interface HealthStatus {
 
 export async function checkBackendHealth(): Promise<HealthStatus> {
   try {
-    const response = await fetch(`${API_URL}/api/v1/health/ready`, {
+    const response = await fetch(`${API_BASE}/api/v1/health/ready`, {
       signal: AbortSignal.timeout(3000),
     });
     if (!response.ok) return { status: 'error' };
@@ -21,4 +30,4 @@ export async function checkBackendHealth(): Promise<HealthStatus> {
   }
 }
 
-export { API_URL };
+export { API_BASE };
