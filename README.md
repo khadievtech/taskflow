@@ -13,11 +13,13 @@ Kubernetes → IaC.
 - [x] Phase 1 — Containerization (Docker Compose)
 - [x] Phase 2 — CI (lint, test, build)
 - [x] Phase 3 — CD (GHCR + деплой на home server)
-- [~] Phase 4 — Observability
+- [x] Phase 4 — Observability
   - [x] 4a — метрики: инструментация, Prometheus, Grafana
   - [x] 4b — логи: структурированный JSON, Alloy, Loki
   - [x] 4c — алерты: Prometheus rules, Alertmanager, Telegram
-- [ ] Phase 5 — Nginx + TLS
+- [~] Phase 5 — Nginx + TLS
+  - [x] 5a — обратный прокси, единая точка входа
+  - [ ] 5b — TLS (нужен домен для DNS-01)
 - [ ] Phase 6 — Auth (Keycloak)
 - [ ] Phase 7 — Kubernetes
 - [ ] Phase 8 — IaC (Terraform + Helm)
@@ -105,6 +107,42 @@ docker network create taskflow-shared
 
 docker compose -p taskflow-prod -f docker-compose.prod.yml --env-file .env.prod up -d
 ```
+
+## Обратный прокси (Phase 5a)
+
+Снаружи открыт единственный порт 80, за ним nginx маршрутизирует запросы:
+
+```
+http://<host>/           → frontend (статика)
+http://<host>/api/...    → backend
+http://<host>/metrics    → 404 (закрыто)
+```
+
+Что это меняет:
+
+- **Порты сервисов больше не публикуются наружу.** Backend доступен на
+  `127.0.0.1:8000` только для отладки с самой машины, frontend вообще не
+  публикуется. Инструменты наблюдения (Grafana, Prometheus, Alertmanager,
+  Loki, Alloy) привязаны к `127.0.0.1` и не видны из локальной сети.
+- **CORS больше не участвует.** Фронтенд обращается к API относительными
+  путями, то есть на тот же origin, что и страница.
+- **Адрес backend не запекается в бандл.** Один образ работает в любом
+  окружении, смена IP сервера не требует пересборки. В dev-режиме ту же роль
+  играет `server.proxy` в `vite.config.ts`, поэтому dev и prod ведут себя
+  одинаково.
+- **Идентификатор запроса присваивает прокси.** Nginx передаёт `X-Request-ID`
+  со значением встроенной переменной `$request_id`, а middleware приложения
+  подхватывает его вместо генерации своего. Идентификатор рождается на границе
+  системы и покрывает весь путь запроса.
+
+Правка маршрутов не требует пересборки образа: конфиг лежит файлом в
+`proxy/nginx.conf`, достаточно перечитать его —
+`docker exec taskflow-prod-reverse-proxy-1 nginx -s reload`.
+
+TLS отложен до появления домена: Let's Encrypt не выдаёт сертификаты на
+приватные IP-адреса, а проверка HTTP-01 требует открытого наружу порта 80,
+чего мы избегаем осознанно (см. `docs/adr/0002`). С доменом заработает
+проверка DNS-01, которая портов не требует.
 
 ## Мониторинг (Phase 4)
 
