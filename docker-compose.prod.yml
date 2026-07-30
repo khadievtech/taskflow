@@ -27,6 +27,9 @@ services:
       DEBUG: "false"
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-taskflow}:${POSTGRES_PASSWORD:-taskflow}@db:5432/${POSTGRES_DB:-taskflow}
       CORS_ORIGINS: ${CORS_ORIGINS}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-true}
     ports:
       # Привязка к 127.0.0.1 вместо 0.0.0.0: порт доступен для отладки с самой
       # машины (curl, psql), но не виден другим устройствам в локальной сети.
