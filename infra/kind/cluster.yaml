@@ -1,0 +1,45 @@
+# Описание локального кластера для kind.
+#
+# Кластер создаётся файлом, а не набором флагов в командной строке — тот же
+# принцип инфраструктуры как кода, что и везде в проекте. Файл в git, кластер
+# воспроизводится на любой машине одной командой.
+#
+# Создать:  kind create cluster --config infra/kind/cluster.yaml
+# Удалить:  kind delete cluster --name taskflow
+
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: taskflow
+
+nodes:
+  # Управляющий узел: на нём работают компоненты, которые принимают решения —
+  # kube-apiserver, планировщик, контроллеры, база состояния etcd.
+  - role: control-plane
+
+    # Метка ingress-ready нужна контроллеру Ingress (Phase 7b): по ней он
+    # поймёт, на какой узел встать. Без метки под контроллера не запланируется
+    # никуда, и Ingress работать не будет.
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+
+    # Кластер живёт внутри Docker, его сеть снаружи не видна. Чтобы обращаться
+    # к приложению с хоста, порты пробрасываются заранее — на работающем
+    # кластере это уже не изменить, только пересоздав.
+    #
+    # 8080, а не 80: порт 80 на машине занят обратным прокси из Docker Compose.
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 8080
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 8443
+        protocol: TCP
+
+  # Рабочие узлы: сюда планировщик размещает поды приложения. Два, а не один,
+  # чтобы было видно распределение нагрузки и что происходит при отказе узла.
+  - role: worker
+  - role: worker

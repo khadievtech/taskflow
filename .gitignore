@@ -42,3 +42,8 @@ observability/alertmanager/telegram_token
 .vscode/
 .idea/
 .DS_Store
+
+# Kubernetes Secret: значения кодируются base64, а не шифруются.
+# В git только шаблон.
+infra/k8s/base/*-secret.yaml
+!infra/k8s/base/*-secret.example.yaml

@@ -1,0 +1,117 @@
+# StatefulSet — как Deployment, но для приложений с состоянием.
+#
+# Чем отличается от Deployment:
+#   - поды получают устойчивые имена по порядку: postgres-0, postgres-1
+#   - у каждого пода СВОЙ диск, который переживает пересоздание пода
+#   - поды создаются и удаляются по одному, а не все разом
+#
+# Deployment считает свои поды взаимозаменяемыми: любой можно убить и заменить
+# другим. Для базы данных это неверно — под postgres-0 привязан к конкретным
+# данным, и подменить его "любым другим" нельзя.
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: taskflow
+  labels:
+    app.kubernetes.io/name: postgres
+spec:
+  # Ссылка на headless Service — через него подам выдаются персональные
+  # DNS-имена. Без этого поля StatefulSet не запустится.
+  serviceName: postgres
+  replicas: 1
+
+  # selector должен совпадать с метками в template.metadata.labels ниже.
+  # Kubernetes откажется применять манифест, если они разойдутся.
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+
+          # envFrom подставляет ВСЕ ключи из Secret как переменные окружения.
+          # Альтернатива — перечислять по одной через env + secretKeyRef, что
+          # многословнее, но позволяет переименовать переменную.
+          envFrom:
+            - secretRef:
+                name: postgres
+
+          env:
+            # Обязательная деталь. Официальный образ postgres отказывается
+            # инициализировать базу в непустом каталоге, а смонтированный том
+            # почти всегда содержит служебную папку lost+found. Поэтому данные
+            # кладут в ПОДКАТАЛОГ смонтированного тома.
+            #
+            # Без этой строки под будет падать с сообщением о непустом каталоге,
+            # и причину не сразу видно.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+
+          ports:
+            - name: postgres
+              containerPort: 5432
+
+          # Пробы — то, ради чего мы ещё в Phase 0 разделили liveness и
+          # readiness в приложении. Здесь тот же принцип для базы.
+          #
+          # readiness: готов ли принимать запросы. Пока проба не проходит,
+          # Service не направляет на этот под трафик.
+          readinessProbe:
+            exec:
+              # Через sh -c, потому что exec-проба не запускает оболочку и
+              # сама по себе не раскрывает переменные окружения.
+              command: ["sh", "-c", "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+
+          # liveness: жив ли процесс. При провале под ПЕРЕЗАПУСКАЕТСЯ.
+          # Поэтому пороги мягче, чем у readiness: временная неготовность
+          # должна лишь убрать под из балансировки, а не убить базу.
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB"]
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # requests — сколько гарантированно выделить, по этому числу
+          # планировщик выбирает узел. limits — потолок, при превышении памяти
+          # контейнер убивается (OOMKilled), при превышении CPU — притормаживается.
+          resources:
+            requests:
+              memory: 128Mi
+              cpu: 100m
+            limits:
+              memory: 512Mi
+              cpu: 500m
+
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+
+  # volumeClaimTemplates — особенность StatefulSet. Для КАЖДОГО пода
+  # создаётся свой PersistentVolumeClaim по этому шаблону. Том переживает
+  # удаление пода и подключается к новому с тем же порядковым номером.
+  #
+  # Важно: при удалении StatefulSet тома НЕ удаляются автоматически —
+  # защита от случайной потери данных. Убирать их нужно вручную.
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        # ReadWriteOnce — том монтируется на запись только одним узлом.
+        # Для базы это норма, параллельная запись с разных узлов ей не нужна.
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi

@@ -1,0 +1,109 @@
+# Deployment — для приложений БЕЗ состояния.
+#
+# Backend ничего не хранит: задачи в Postgres, токены не хранятся нигде
+# (мы это подробно разбирали). Значит его поды взаимозаменяемы, и подойдёт
+# Deployment, а не StatefulSet.
+#
+# Две реплики, чтобы увидеть балансировку и плавное обновление.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: taskflow
+  labels:
+    app.kubernetes.io/name: backend
+spec:
+  replicas: 2
+
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: backend
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # Сколько подов можно поднять СВЕРХ желаемого числа во время обновления.
+      # 1 означает: на пике будет 3 пода вместо 2.
+      maxSurge: 1
+      # Сколько подов можно вывести из строя одновременно. 0 означает, что
+      # доступность не проседает ни на секунду: сначала поднимается новый под
+      # и проходит пробу готовности, только потом гасится старый.
+      #
+      # Это и есть обновление без простоя, которого не даёт Watchtower.
+      maxUnavailable: 0
+
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: backend
+    spec:
+      containers:
+        - name: backend
+          image: ghcr.io/khadievtech/taskflow-backend:latest
+
+          # Замена ENTRYPOINT: запускаем uvicorn напрямую, минуя
+          # docker-entrypoint.sh с миграциями. Миграции теперь выполняет
+          # отдельный Job — см. 50-migrate-job.yaml.
+          command:
+            ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+          envFrom:
+            - configMapRef:
+                name: backend
+            - secretRef:
+                name: backend
+
+          ports:
+            - name: http
+              containerPort: 8000
+
+          # Вот ради чего в Phase 0 пробы были разделены на liveness и
+          # readiness — тогда это выглядело заделом на будущее.
+          #
+          # readiness проверяет /health/ready, который обращается к БАЗЕ.
+          # При недоступности базы под убирается из балансировки, но НЕ
+          # перезапускается: перезапуск ничего не починит, база всё равно
+          # недоступна.
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health/ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          # liveness проверяет /health/live, который НЕ трогает базу.
+          # При провале под перезапускается — значит проба должна означать
+          # "процесс завис", а не "зависимость недоступна". Если бы liveness
+          # ходил в базу, просадка БД вызвала бы перезапуск всех подов
+          # вместо простого исключения их из балансировки.
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health/live
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          # startupProbe даёт приложению время на медленный старт, не мешая
+          # остальным пробам. Пока она не прошла, liveness и readiness не
+          # выполняются вовсе. Без неё пришлось бы завышать
+          # initialDelaySeconds у liveness, что замедлило бы обнаружение
+          # реальных зависаний в работающем поде.
+          startupProbe:
+            httpGet:
+              path: /api/v1/health/live
+              port: http
+            periodSeconds: 3
+            failureThreshold: 20
+
+          resources:
+            requests:
+              memory: 192Mi
+              cpu: 100m
+            limits:
+              memory: 512Mi
+              cpu: 500m

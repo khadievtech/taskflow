@@ -1,0 +1,39 @@
+# Service — постоянный адрес для подов, которые постоянно меняются.
+#
+# Поды пересоздаются с новыми IP-адресами (вы видели это, удалив поды CoreDNS).
+# Service даёт стабильное DNS-имя, по которому база доступна изнутри кластера:
+#
+#   postgres.taskflow.svc.cluster.local   — полное имя
+#   postgres                              — короткое, работает внутри namespace
+#
+# То есть backend будет обращаться к postgres:5432 — ровно так же, как
+# обращался к db:5432 в Docker Compose. Механизм другой, ощущение то же.
+#
+# clusterIP: None делает Service "безголовым" (headless). Обычный Service
+# получает собственный виртуальный IP и балансирует запросы между подами.
+# Безголовый не балансирует, а возвращает адреса подов напрямую и даёт
+# каждому поду персональное DNS-имя: postgres-0.postgres.taskflow.svc...
+#
+# Для базы данных это правильнее: реплики базы не взаимозаменяемы, и клиент
+# должен уметь обратиться к конкретному экземпляру, а не к случайному.
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: taskflow
+  labels:
+    app.kubernetes.io/name: postgres
+spec:
+  clusterIP: None
+  # selector — как Service находит свои поды. Он НЕ ссылается на StatefulSet
+  # по имени, а ищет любые поды с такими метками. Отсюда правило: метки в
+  # selector здесь и метки подов в StatefulSet должны совпадать, иначе Service
+  # будет указывать в пустоту, причём без единой ошибки при применении.
+  selector:
+    app.kubernetes.io/name: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+      protocol: TCP
