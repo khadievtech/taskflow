@@ -1,0 +1,100 @@
+name: K8s manifests
+
+on:
+  pull_request:
+    paths:
+      - "infra/k8s/**"
+      - "infra/kind/**"
+      - ".github/workflows/k8s-validate.yml"
+  push:
+    branches: [main]
+    paths:
+      - "infra/k8s/**"
+
+jobs:
+  # Уровень 1 — синтаксическая валидность по официальной схеме Kubernetes.
+  # Работает без кластера, поэтому быстрый: секунды, а не минуты.
+  schema-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install kubeconform
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz \
+            | tar xz -C /usr/local/bin kubeconform
+
+      - name: Validate manifests against Kubernetes schema
+        run: |
+          # -summary печатает итоговую статистику, -strict запрещает
+          # неизвестные поля (то же строгий режим, что мы использовали
+          # локально через kubernetes-validate).
+          #
+          # Секреты (*-secret.yaml) не существуют в CI — они в .gitignore,
+          # реальных значений там нет. Проверяем только .example-шаблоны:
+          # структура та же, а pull request от постороннего человека не
+          # получит доступа к настоящим паролям.
+          find infra/k8s/base -name "*.yaml" -o -name "*.yaml.example" | \
+            xargs kubeconform -strict -summary \
+              -kubernetes-version 1.32.0 \
+              -ignore-missing-schemas
+
+  # Уровень 2 — применимость манифестов на настоящем, пусть и временном,
+  # кластере. Ловит то, что схема не видит: несовпадение selector и
+  # template.metadata.labels, ссылки на несуществующие ConfigMap/Secret.
+  dry-run-in-kind:
+    runs-on: ubuntu-latest
+    needs: schema-check
+    steps:
+      - uses: actions/checkout@v4
+
+      # Официальный action создателей kind — тот же инструмент, что и на
+      # вашем Mac, просто поднятый внутри самого раннера GitHub Actions.
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: ci-taskflow
+          wait: 90s
+
+      - name: Prepare placeholder secrets
+        # В CI нет реальных паролей — секреты в .gitignore. Но проверить,
+        # что манифесты СТРУКТУРНО согласованы (Deployment ссылается на
+        # существующий Secret, а не опечатался в имени), можно и с
+        # фиктивными значениями: важен факт применения, а не содержимое.
+        run: |
+          sed 's/CHANGE-ME-use-a-real-password/ci-placeholder/' \
+            infra/k8s/base/10-postgres-secret.example.yaml > infra/k8s/base/10-postgres-secret.yaml
+          sed -e 's/CHANGE-ME-password/ci-placeholder/' \
+              -e 's/CHANGE-ME-generate-with-secrets-token-urlsafe/ci-placeholder-jwt-secret-for-testing-only/' \
+              infra/k8s/base/41-backend-secret.yaml.example > infra/k8s/base/41-backend-secret.yaml
+
+      - name: Apply manifests
+        run: kubectl apply -f infra/k8s/base/
+
+      - name: Wait for Postgres to become ready
+        run: kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=postgres -n taskflow --timeout=120s
+
+      - name: Wait for migrate Job to complete
+        # Job у нас непереиспользуемый (уникальное имя) — это ровно то
+        # неудобство, что описано в pull 24 реестра техдолга. В CI это не
+        # мешает: кластер эфемерный, конфликта имён быть не может.
+        run: kubectl wait --for=condition=complete job/migrate -n taskflow --timeout=120s
+
+      - name: Wait for backend Deployment to become ready
+        run: kubectl rollout status deployment/backend -n taskflow --timeout=120s
+
+      - name: Smoke test through port-forward
+        run: |
+          kubectl port-forward -n taskflow svc/backend 8001:8000 &
+          sleep 3
+          curl -sf http://localhost:8001/api/v1/health/ready
+
+      - name: Dump diagnostics on failure
+        if: failure()
+        run: |
+          echo "=== pods ==="
+          kubectl get pods -n taskflow -o wide
+          echo "=== events ==="
+          kubectl get events -n taskflow --sort-by='.lastTimestamp'
+          echo "=== backend logs ==="
+          kubectl logs -n taskflow -l app.kubernetes.io/name=backend --tail=100 || true
