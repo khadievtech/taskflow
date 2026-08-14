@@ -1,0 +1,25 @@
+# Service для backend — обычный, не безголовый.
+#
+# Отличие от Service базы: здесь нужна БАЛАНСИРОВКА. Поды backend
+# взаимозаменяемы, и запрос может обслужить любой из них. Service получает
+# собственный виртуальный IP и раскидывает запросы между готовыми подами.
+#
+# "Готовыми" — ключевое слово: под попадает в балансировку только после
+# успешной пробы readiness. Именно так достигается обновление без простоя.
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: taskflow
+  labels:
+    app.kubernetes.io/name: backend
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: backend
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+      protocol: TCP

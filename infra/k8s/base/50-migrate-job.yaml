@@ -1,0 +1,65 @@
+# Job — задача, которая выполняется ОДИН раз и завершается.
+#
+# Закрывает пункт 6 реестра техдолга. Раньше миграции выполнялись в
+# docker-entrypoint.sh при старте каждого контейнера: с одной репликой
+# безвредно, с несколькими — все поды одновременно полезли бы применять
+# миграции. Alembic защищён advisory-блокировкой в Postgres, но полагаться
+# на неё как на архитектуру неправильно.
+#
+# Теперь миграции выполняет отдельный Job, ровно один раз, а поды приложения
+# стартуют сразу с uvicorn.
+#
+# Известное неудобство: имя Job уникально, повторное применение того же
+# манифеста завершится ошибкой "уже существует". Перед повторным запуском
+# нужно удалить предыдущий:
+#
+#   kubectl delete job migrate -n taskflow --ignore-not-found
+#   kubectl apply -f infra/k8s/base/50-migrate-job.yaml
+#
+# В Helm (Phase 8) это решается хуками: аннотация helm.sh/hook: pre-upgrade
+# заставляет Job выполняться перед каждым обновлением автоматически.
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migrate
+  namespace: taskflow
+spec:
+  # Сколько раз повторять при неудаче. Миграция может не пройти из-за
+  # временной недоступности базы — тогда повтор поможет. Если же миграция
+  # содержит ошибку, повторы её не исправят, поэтому число небольшое.
+  backoffLimit: 3
+
+  # Удалить Job через час после завершения. Без этого завершённые Job
+  # копятся в кластере и засоряют вывод kubectl get.
+  ttlSecondsAfterFinished: 3600
+
+  template:
+    spec:
+      # Never — при падении контейнера пересоздаётся под целиком, этим
+      # управляет backoffLimit. OnFailure перезапускал бы контейнер внутри
+      # того же пода, и счётчик попыток работал бы иначе.
+      restartPolicy: Never
+
+      containers:
+        - name: migrate
+          image: ghcr.io/khadievtech/taskflow-backend:latest
+
+          # command ЗАМЕНЯЕТ ENTRYPOINT образа. Здесь это принципиально:
+          # без замены выполнился бы docker-entrypoint.sh, который сам делает
+          # alembic upgrade head, а потом запустил бы миграции второй раз.
+          command: ["alembic", "upgrade", "head"]
+
+          envFrom:
+            - configMapRef:
+                name: backend
+            - secretRef:
+                name: backend
+
+          resources:
+            requests:
+              memory: 128Mi
+              cpu: 100m
+            limits:
+              memory: 512Mi
+              cpu: 500m
