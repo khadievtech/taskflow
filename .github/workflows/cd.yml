@@ -3,10 +3,16 @@ name: CD
 on:
   push:
     branches: [main]
+    # Без этого ограничения workflow пересобирал бы и публиковал образы
+    # backend/frontend при ЛЮБОМ мердже в main — включая правки манифестов
+    # Kubernetes, документации, реестра техдолга. Watchtower подтянул бы
+    # новый тег с тем же самым содержимым, впустую тратя минуты CI и цикл
+    # обновления контейнеров без единого реального изменения кода.
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - ".github/workflows/cd.yml"
 
-# По умолчанию GITHUB_TOKEN может не иметь прав на публикацию пакетов —
-# явно запрашиваем нужный scope здесь, а не полагаемся на настройки
-# организации по умолчанию.
 permissions:
   contents: read
   packages: write
@@ -17,25 +23,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # QEMU нужен, чтобы amd64-раннер GitHub мог собирать arm64-образ через
-      # эмуляцию. buildx — расширенный сборщик, умеющий multi-platform manifest.
-      # Итог: один тег :latest содержит варианты под обе архитектуры, и docker
-      # pull сам выбирает нужный — образ заработает и на Apple Silicon (arm64),
-      # и на старом ноутбуке с Intel (amd64), без предупреждений о платформе.
-      #
-      # Trade-off: arm64-часть собирается под эмуляцией и потому медленно
-      # (минуты вместо секунд). Быстрее было бы собирать каждую архитектуру на
-      # нативном раннере (ubuntu-24.04-arm) и сшивать манифест отдельным шагом,
-      # но это усложняет workflow — для частоты коммитов pet-проекта не нужно.
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
 
       - name: Compute short SHA tag
         id: vars
@@ -78,11 +74,6 @@ jobs:
           target: production
           push: true
           platforms: linux/amd64,linux/arm64
-          # build-args для VITE_API_URL больше не передаётся: фронтенд
-          # обращается к API относительными путями, которые маршрутизирует
-          # обратный прокси. Адрес backend в бандл не попадает, поэтому образ
-          # одинаково работает в любом окружении. Repository variable
-          # PROD_API_URL больше не используется и может быть удалена.
           tags: |
             ghcr.io/${{ github.repository_owner }}/taskflow-frontend:latest
             ghcr.io/${{ github.repository_owner }}/taskflow-frontend:${{ steps.vars.outputs.sha_short }}
