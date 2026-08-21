@@ -63,7 +63,7 @@ jobs:
         # фиктивными значениями: важен факт применения, а не содержимое.
         run: |
           sed 's/CHANGE-ME-use-a-real-password/ci-placeholder/' \
-            infra/k8s/base/10-postgres-secret.example.yaml > infra/k8s/base/10-postgres-secret.yaml
+            infra/k8s/base/10-postgres-secret.yaml.example > infra/k8s/base/10-postgres-secret.yaml
           sed -e 's/CHANGE-ME-password/ci-placeholder/' \
               -e 's/CHANGE-ME-generate-with-secrets-token-urlsafe/ci-placeholder-jwt-secret-for-testing-only/' \
               infra/k8s/base/41-backend-secret.yaml.example > infra/k8s/base/41-backend-secret.yaml
