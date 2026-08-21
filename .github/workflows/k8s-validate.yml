@@ -14,6 +14,10 @@ on:
 jobs:
   # Уровень 1 — синтаксическая валидность по официальной схеме Kubernetes.
   # Работает без кластера, поэтому быстрый: секунды, а не минуты.
+  #
+  # Не проверяет объекты Gateway API / Kong (Gateway, HTTPRoute, KongPlugin,
+  # GatewayClass) — это CRD сторонних проектов, официальной JSON-схемы
+  # Kubernetes для них нет. Их корректность проверяется только вторым уровнем.
   schema-check:
     runs-on: ubuntu-latest
     steps:
@@ -24,37 +28,59 @@ jobs:
           curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz \
             | tar xz -C /usr/local/bin kubeconform
 
-      - name: Validate manifests against Kubernetes schema
+      - name: Validate core Kubernetes manifests against schema
         run: |
-          # -summary печатает итоговую статистику, -strict запрещает
-          # неизвестные поля (то же строгий режим, что мы использовали
-          # локально через kubernetes-validate).
-          #
-          # Секреты (*-secret.yaml) не существуют в CI — они в .gitignore,
-          # реальных значений там нет. Проверяем только .example-шаблоны:
-          # структура та же, а pull request от постороннего человека не
-          # получит доступа к настоящим паролям.
-          find infra/k8s/base -name "*.yaml" -o -name "*.yaml.example" | \
+          find infra/k8s/base \
+            \( -name "00-*.yaml" -o -name "10-*" -o -name "20-*.yaml" \
+               -o -name "30-*.yaml" -o -name "40-*.yaml" -o -name "41-*" \
+               -o -name "50-*.yaml" -o -name "60-*.yaml" -o -name "61-*.yaml" \) \
+            -name "*.yaml*" | \
             xargs kubeconform -strict -summary \
               -kubernetes-version 1.32.0 \
               -ignore-missing-schemas
 
   # Уровень 2 — применимость манифестов на настоящем, пусть и временном,
   # кластере. Ловит то, что схема не видит: несовпадение selector и
-  # template.metadata.labels, ссылки на несуществующие ConfigMap/Secret.
+  # template.metadata.labels, ссылки на несуществующие ConfigMap/Secret,
+  # и — после введения Gateway API/Kong — реальную готовность Gateway
+  # принимать трафик, а не только "манифест применился без ошибки".
   dry-run-in-kind:
     runs-on: ubuntu-latest
     needs: schema-check
     steps:
       - uses: actions/checkout@v4
 
-      # Официальный action создателей kind — тот же инструмент, что и на
-      # вашем Mac, просто поднятый внутри самого раннера GitHub Actions.
       - name: Create kind cluster
         uses: helm/kind-action@v1
         with:
           cluster_name: ci-taskflow
           wait: 90s
+
+      # Gateway API CRD (GatewayClass, Gateway, HTTPRoute...) — без них
+      # kubectl apply на наши манифесты 69-72 падает с
+      # "no matches for kind GatewayClass/Gateway/HTTPRoute". Тот же URL,
+      # что используется на локальной машине разработчика.
+      - name: Install Gateway API CRDs
+        run: |
+          kubectl apply --server-side -f \
+            https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.1/standard-install.yaml
+
+      # Kong в DB-less режиме — тот же чарт, что и локально. Устанавливает
+      # control plane, сам прокси и CRD KongPlugin.
+      #
+      # NodePort-флаги здесь не имеют значения для самой проверки: в CI
+      # трафик снаружи не проверяется (нет аналога extraPortMappings из
+      # kind на локальной машине) — доступ к сервисам идёт только через
+      # port-forward, см. шаги ниже. Флаги оставлены для единообразия
+      # с продовой командой установки.
+      - name: Install Kong (Gateway API controller, DB-less)
+        run: |
+          helm repo add kong https://charts.konghq.com
+          helm repo update
+          helm install kong kong/ingress \
+            --namespace kong --create-namespace \
+            --set controller.ingressController.env.feature_gates="GatewayAlpha=true" \
+            --wait --timeout 120s
 
       - name: Prepare placeholder secrets
         # В CI нет реальных паролей — секреты в .gitignore. Но проверить,
@@ -76,25 +102,53 @@ jobs:
 
       - name: Wait for migrate Job to complete
         # Job у нас непереиспользуемый (уникальное имя) — это ровно то
-        # неудобство, что описано в pull 24 реестра техдолга. В CI это не
+        # неудобство, что описано в пункте 6 реестра техдолга (закрыт
+        # для Kubernetes) применительно к повторному запуску. В CI это не
         # мешает: кластер эфемерный, конфликта имён быть не может.
         run: kubectl wait --for=condition=complete job/migrate -n taskflow --timeout=120s
 
       - name: Wait for backend Deployment to become ready
         run: kubectl rollout status deployment/backend -n taskflow --timeout=120s
 
-      - name: Smoke test through port-forward
+      # Проверяет именно то, что один раз уже ломалось на практике и заняло
+      # больше часа отладки: GatewayClass без аннотации
+      # konghq.com/gatewayclass-unmanaged оставляет Gateway в статусе
+      # "Waiting for controller" НАВСЕГДА, без единой ошибки при apply.
+      # Без этой проверки CI был бы зелёным, даже если Kong вообще не видит
+      # наш Gateway — ситуация, в которой мы оказались локально.
+      - name: Wait for Gateway to be programmed by Kong
+        run: kubectl wait --for=condition=programmed gateway/taskflow -n taskflow --timeout=90s
+
+      - name: Smoke test backend directly through Service
         run: |
           kubectl port-forward -n taskflow svc/backend 8001:8000 &
           sleep 3
           curl -sf http://localhost:8001/api/v1/health/ready
 
+      # Дополнительно к прямому обращению к backend — тот же запрос, но
+      # ЧЕРЕЗ Kong и HTTPRoute, как это происходит для реального внешнего
+      # трафика. Проверяет всю цепочку маршрутизации, а не только то, что
+      # backend сам по себе жив.
+      - name: Smoke test through Kong Gateway (HTTPRoute routing)
+        run: |
+          kubectl port-forward -n kong svc/kong-gateway-proxy 8080:80 &
+          sleep 3
+          curl -sf http://localhost:8080/api/v1/health/ready
+
       - name: Dump diagnostics on failure
         if: failure()
         run: |
-          echo "=== pods ==="
+          echo "=== pods (taskflow) ==="
           kubectl get pods -n taskflow -o wide
-          echo "=== events ==="
+          echo "=== events (taskflow) ==="
           kubectl get events -n taskflow --sort-by='.lastTimestamp'
           echo "=== backend logs ==="
           kubectl logs -n taskflow -l app.kubernetes.io/name=backend --tail=100 || true
+          echo "=== gateway status ==="
+          kubectl describe gateway taskflow -n taskflow || true
+          echo "=== gatewayclass status ==="
+          kubectl describe gatewayclass kong || true
+          echo "=== pods (kong) ==="
+          kubectl get pods -n kong -o wide || true
+          echo "=== kong controller logs ==="
+          kubectl logs -n kong deployment/kong-controller --tail=100 || true
