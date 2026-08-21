@@ -1,0 +1,22 @@
+# Маршрут "по умолчанию" — всё, что не подошло под /api/ или
+# /api/v1/auth/, уходит на frontend. Порядок объявления HTTPRoute не имеет
+# значения: Gateway API сам сортирует правила по специфичности совпадения
+# пути независимо от того, в каком объекте они описаны и в каком порядке
+# применялись — более длинный префикс побеждает более короткий.
+
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: frontend
+  namespace: taskflow
+spec:
+  parentRefs:
+    - name: taskflow
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: frontend
+          port: 80
