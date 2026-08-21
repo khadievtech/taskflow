@@ -74,13 +74,20 @@ jobs:
       # port-forward, см. шаги ниже. Флаги оставлены для единообразия
       # с продовой командой установки.
       - name: Install Kong (Gateway API controller, DB-less)
+        # Без --wait: он оборачивает всю установку в один таймаут без
+        # объяснения, какой именно под не поднялся. Ожидание готовности
+        # вынесено в отдельный шаг ниже — там понятнее видно причину при
+        # падении, и таймаут больше (CI-раннер слабее локальной машины
+        # разработчика, скачивание образов Kong занимает заметно дольше).
         run: |
           helm repo add kong https://charts.konghq.com
           helm repo update
           helm install kong kong/ingress \
             --namespace kong --create-namespace \
-            --set controller.ingressController.env.feature_gates="GatewayAlpha=true" \
-            --wait --timeout 120s
+            --set controller.ingressController.env.feature_gates="GatewayAlpha=true"
+
+      - name: Wait for Kong pods to become ready
+        run: kubectl wait --for=condition=ready pod -l app.kubernetes.io/instance=kong -n kong --timeout=180s
 
       - name: Prepare placeholder secrets
         # В CI нет реальных паролей — секреты в .gitignore. Но проверить,
