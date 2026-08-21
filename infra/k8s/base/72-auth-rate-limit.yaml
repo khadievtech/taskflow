@@ -1,0 +1,46 @@
+# Закрывает пункт 19 реестра техдолга: сейчас POST /auth/login можно
+# долбить без всяких ограничений — каждая попытка тратит процессор на
+# Argon2id, и поток запросов на вход становится способом уложить сервис.
+#
+# policy: local — счётчик живёт в памяти самого пода Kong, не требует
+# Redis. Ограничение: при нескольких репликах Kong счётчик у каждой свой,
+# то есть реальный лимит становится "N х число реплик". У нас одна реплика
+# Kong, поэтому это не проблема — но при масштабировании прокси придётся
+# перейти на policy: redis с общим хранилищем счётчиков.
+#
+# limit_by: ip, а не по учётной записи: на этапе входа пользователь ещё
+# не аутентифицирован, идентифицировать его нечем, кроме адреса.
+
+apiVersion: configuration.konghq.com/v1
+kind: KongPlugin
+metadata:
+  name: auth-rate-limit
+  namespace: taskflow
+config:
+  minute: 20
+  policy: local
+  limit_by: ip
+plugin: rate-limiting
+
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: backend-auth
+  namespace: taskflow
+  annotations:
+    # Механизм привязки плагина к конкретному маршруту — специфика Kong,
+    # не часть стандарта Gateway API. Без этой аннотации плагин существовал
+    # бы как объект, но ни на что не влиял.
+    konghq.com/plugins: auth-rate-limit
+spec:
+  parentRefs:
+    - name: taskflow
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api/v1/auth/
+      backendRefs:
+        - name: backend
+          port: 8000
