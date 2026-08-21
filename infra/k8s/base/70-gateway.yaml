@@ -1,0 +1,27 @@
+# Gateway — точка входа снаружи.
+#
+# Реализация — Kong Ingress Controller в DB-less режиме. Почему Kong, а не
+# NGINX Gateway Fabric (который мы почти взяли до этого): Kong даёт готовый
+# декларативный rate limiting через CRD KongPlugin — закрывает пункт 19
+# реестра техдолга (перебор пароля на входе без ограничений) одной
+# аннотацией, без написания кода.
+#
+# DB-less: конфигурация читается из Kubernetes-манифестов напрямую, без
+# отдельной базы данных для самого Kong — не плодим вторую БД ради прокси.
+#
+# gatewayClassName: kong создаётся автоматически чартом kong/ingress.
+
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: taskflow
+  namespace: taskflow
+spec:
+  gatewayClassName: kong
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: Same
