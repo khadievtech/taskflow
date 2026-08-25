@@ -1,0 +1,46 @@
+# Grafana Tempo — хранилище трейсов. Монолитный режим с локальным диском,
+# тот же принцип, что и у Loki: для масштаба домашнего кластера
+# object storage (S3/GCS/MinIO) избыточен, простой filesystem-backend
+# полностью достаточен.
+#
+# Установка:
+#   helm repo add grafana-community https://grafana-community.github.io/helm-charts
+#   helm install tempo grafana-community/tempo \
+#     --namespace monitoring \
+#     -f infra/k8s/observability/01-tempo-values.yaml
+
+tempo:
+  storage:
+    trace:
+      backend: local
+      local:
+        path: /var/tempo/traces
+      wal:
+        path: /var/tempo/wal
+
+  # 72 часа, короче, чем у логов и метрик (15 дней / 7 дней) — трейсы
+  # занимают больше места на единицу времени и полезны в первую очередь
+  # для разбора недавних инцидентов, а не долгосрочного анализа.
+  retention: 72h
+
+  # Tempo принимает трейсы по OTLP напрямую, отдельный OpenTelemetry
+  # Collector не нужен — backend будет слать спаны сюда без посредников.
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 300m
+    memory: 512Mi
+
+persistence:
+  enabled: true
+  size: 2Gi

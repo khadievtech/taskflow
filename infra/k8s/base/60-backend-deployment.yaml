@@ -45,8 +45,15 @@ spec:
           # Замена ENTRYPOINT: запускаем uvicorn напрямую, минуя
           # docker-entrypoint.sh с миграциями. Миграции теперь выполняет
           # отдельный Job — см. 50-migrate-job.yaml.
+          # opentelemetry-instrument оборачивает процесс и автоматически
+          # находит установленные instrumentation-пакеты (FastAPI,
+          # SQLAlchemy) через механизм entry points -- ни одна строка кода
+          # приложения не менялась ради появления трейсинга.
           command:
-            ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+            [
+              "opentelemetry-instrument",
+              "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000",
+            ]
 
           envFrom:
             - configMapRef:

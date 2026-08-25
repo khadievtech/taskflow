@@ -11,6 +11,15 @@ dependencies = [
     "asyncpg>=0.30",
     "alembic>=1.14",
     "prometheus-fastapi-instrumentator>=7.0",
+    # OpenTelemetry -- автоматическая инструментация без переписывания кода
+    # приложения. opentelemetry-distro запускается оборачивающей командой
+    # `opentelemetry-instrument` (см. Deployment) и сам находит установленные
+    # instrumentation-пакеты для FastAPI и SQLAlchemy через entry points,
+    # добавляя спаны на каждый HTTP-запрос и каждый SQL-вызов.
+    "opentelemetry-distro>=0.50",
+    "opentelemetry-exporter-otlp>=1.29",
+    "opentelemetry-instrumentation-fastapi>=0.50",
+    "opentelemetry-instrumentation-sqlalchemy>=0.50",
     # pwdlib вместо passlib: passlib не поддерживается с 2020, использует
     # удалённый в Python 3.13 модуль crypt и ломается на bcrypt 5.0.
     "pwdlib[argon2]>=0.2",

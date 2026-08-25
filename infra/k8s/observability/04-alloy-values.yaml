@@ -1,0 +1,32 @@
+# Официальный чарт grafana/alloy — DaemonSet, по одному поду Alloy на
+# каждый узел кластера, каждый читает логи подов только СВОЕГО узла.
+#
+# Установка:
+#   helm install alloy grafana/alloy \
+#     --namespace monitoring \
+#     --set-file alloy.configMap.content=infra/k8s/observability/03-alloy-config.alloy \
+#     -f infra/k8s/observability/04-alloy-values.yaml
+
+alloy:
+  configMap:
+    # Содержимое передаётся отдельным флагом --set-file при установке —
+    # это надёжнее, чем встраивать многострочный River-конфиг прямо в
+    # values.yaml, где легко случайно сломать отступы при копировании.
+    create: true
+
+  # Права на чтение подов и их логов через Kubernetes API — минимально
+  # необходимый набор, ограниченный этим namespace. Разительное отличие
+  # от Docker Compose версии, где Alloy получал root и полный сокет Docker.
+  clustering:
+    enabled: false
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+controller:
+  type: daemonset

@@ -1,0 +1,23 @@
+# ServiceMonitor -- собственный CRD Prometheus Operator, декларация "скрейпь
+# вот этот Service по такому-то пути". Без него Prometheus не узнает про
+# backend, даже при serviceMonitorSelectorNilUsesHelmValues: false в values
+# kube-prometheus-stack (та настройка снимает требование к МЕТКАМ на
+# ServiceMonitor, но сам объект всё равно должен существовать).
+#
+# selector ищет Service с меткой app.kubernetes.io/name: backend -- ровно
+# та метка, что уже стоит на infra/k8s/base/61-backend-service.yaml,
+# отдельно заводить новую не нужно.
+
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: backend
+  namespace: taskflow
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: backend
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s

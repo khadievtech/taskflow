@@ -18,6 +18,8 @@ import logging.config
 from contextvars import ContextVar
 from typing import Any
 
+from opentelemetry import trace
+
 # ContextVar, а не глобальная переменная: значение изолировано в рамках одной
 # асинхронной задачи. При конкурентной обработке десятков запросов каждый видит
 # только свой request_id, и логи не перемешиваются между запросами.
@@ -52,6 +54,21 @@ class JsonFormatter(logging.Formatter):
         request_id = request_id_var.get()
         if request_id is not None:
             payload["request_id"] = request_id
+
+        # Связка с трейсингом (Phase 8): если запрос сейчас внутри активного
+        # OTel-спана (значит opentelemetry-instrument реально обернул процесс),
+        # добавляем trace_id и span_id. Именно по trace_id Grafana строит
+        # переход "лог -> конкретный трейс в Tempo" -- derived field в
+        # конфиге источника данных Loki ищет ровно "trace_id":"...".
+        #
+        # get_current_span() безопасен без активной инструментации: в тестах
+        # (pytest не запускается под opentelemetry-instrument) возвращается
+        # no-op спан с is_valid=False, и поля просто не добавляются -- никакой
+        # жёсткой зависимости от реально работающего трейсинга.
+        span_context = trace.get_current_span().get_span_context()
+        if span_context.is_valid:
+            payload["trace_id"] = format(span_context.trace_id, "032x")
+            payload["span_id"] = format(span_context.span_id, "016x")
 
         if record.exc_info:
             payload["exception"] = self.formatException(record.exc_info)
