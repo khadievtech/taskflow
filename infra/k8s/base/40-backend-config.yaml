@@ -31,3 +31,20 @@ data:
   # Пустой список: после появления Ingress фронтенд и API окажутся на одном
   # origin, и CORS не понадобится, как это уже произошло с обратным прокси.
   CORS_ORIGINS: "[]"
+
+  # OpenTelemetry: куда слать трейсы и как называть сервис в Tempo.
+  OTEL_SERVICE_NAME: "taskflow-backend"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://tempo.monitoring.svc.cluster.local:4317"
+  OTEL_EXPORTER_OTLP_PROTOCOL: "grpc"
+  OTEL_TRACES_EXPORTER: "otlp"
+  # Метрики и логи уже есть через собственные пайплайны
+  # (prometheus-fastapi-instrumentator, структурированный JSON в stdout).
+  # Отключаем встроенные метрики/логи OTel явно, чтобы не завести вторую,
+  # частично дублирующую систему инструментации.
+  OTEL_METRICS_EXPORTER: "none"
+  OTEL_LOGS_EXPORTER: "none"
+  # 100% семплирование оправдано только на масштабе pet-проекта с низким
+  # трафиком. На реальной нагрузке это первое, что стоит уменьшить --
+  # например, OTEL_TRACES_SAMPLER=parentbased_traceidratio с
+  # OTEL_TRACES_SAMPLER_ARG=0.1 (10% трейсов).
+  OTEL_TRACES_SAMPLER: "always_on"

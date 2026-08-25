@@ -1,0 +1,67 @@
+// Конфиг Alloy для Kubernetes — принципиальное отличие от Docker Compose
+// версии: discovery.kubernetes вместо сокета Docker. Это закрывает пункт 13
+// реестра техдолга (Alloy требовал root и доступ к /var/run/docker.sock,
+// что равносильно правам root на хосте). Здесь Alloy общается с
+// Kubernetes API через штатный ServiceAccount с ограниченными правами
+// (только чтение подов и логов), без единой прямой привилегии к хосту.
+
+discovery.kubernetes "pods" {
+  role = "pod"
+}
+
+discovery.relabel "pods" {
+  targets = discovery.kubernetes.pods.targets
+
+  rule {
+    source_labels = ["__meta_kubernetes_namespace"]
+    target_label  = "namespace"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_pod_name"]
+    target_label  = "pod"
+  }
+  // app.kubernetes.io/name — та же метка, что стоит на всех наших
+  // Deployment/StatefulSet (backend, frontend, postgres) — переносим её
+  // в метку service, чтобы запросы в Loki выглядели так же, как раньше:
+  // {service="backend"}, а не громоздко через полное имя лейбла.
+  rule {
+    source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+    target_label  = "service"
+  }
+}
+
+loki.source.kubernetes "pods" {
+  targets    = discovery.relabel.pods.output
+  forward_to = [loki.process.parse.receiver]
+}
+
+loki.process "parse" {
+  stage.json {
+    expressions = {
+      level    = "level",
+      logger   = "logger",
+      trace_id = "trace_id",
+    }
+  }
+
+  // trace_id НЕ становится меткой — та же логика кардинальности, что и с
+  // request_id в Phase 4b: значение уникально для каждого трейса, метка из
+  // него породила бы неограниченный рост числа потоков. Он остаётся
+  // доступным для полнотекстового поиска и для derived field в Grafana,
+  // связывающего лог с трейсом в Tempo.
+  stage.labels {
+    values = {
+      level   = "",
+      logger  = "",
+      service = "",
+    }
+  }
+
+  forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push"
+  }
+}

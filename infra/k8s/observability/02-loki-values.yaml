@@ -1,0 +1,68 @@
+# Loki в монолитном режиме -- тот же выбор, что и в Docker Compose:
+# на масштабе одного домашнего кластера object storage избыточен.
+#
+# deploymentMode: SingleBinary -- обязательное явное поле в современных
+# версиях чарта. Раньше режим выводился из того, какие секции заданы
+# (singleBinary.replicas > 0), но чарт теперь требует прямого указания:
+# без него включаются одновременно и singleBinary, и simple-scalable
+# компоненты, и валидатор чарта отказывается устанавливать такую
+# двусмысленную конфигурацию.
+#
+# Установка:
+#   helm install loki grafana/loki \
+#     --namespace monitoring \
+#     -f infra/k8s/observability/02-loki-values.yaml
+
+deploymentMode: SingleBinary
+
+loki:
+  auth_enabled: false
+  commonConfig:
+    replication_factor: 1
+  storage:
+    type: filesystem
+
+  # Схема хранения -- обязательное поле в современных версиях чарта,
+  # раньше подставлялась по умолчанию. Та же схема, что использовалась в
+  # Docker Compose версии (Phase 4b): TSDB как формат индекса, filesystem
+  # как объектное хранилище. Записи schema_config неизменяемы: при переходе
+  # на новую схему в будущем добавляют НОВУЮ запись с датой в будущем,
+  # существующую не трогают.
+  schemaConfig:
+    configs:
+      - from: 2024-01-01
+        store: tsdb
+        object_store: filesystem
+        schema: v13
+        index:
+          prefix: index_
+          period: 24h
+
+singleBinary:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 512Mi
+  persistence:
+    enabled: true
+    size: 2Gi
+
+# Явно обнуляем компоненты режима SimpleScalable/распределённого режима --
+# при deploymentMode: SingleBinary чарт всё равно генерирует их шаблоны
+# с нулём реплик, но лучше сказать это прямо, чем полагаться на неявное
+# поведение, которое уже один раз преподнесло сюрприз.
+backend:
+  replicas: 0
+read:
+  replicas: 0
+write:
+  replicas: 0
+
+test:
+  enabled: false
+lokiCanary:
+  enabled: false

@@ -1,0 +1,15 @@
+# ШАБЛОН. Скопируйте в 00-kube-prometheus-values.local.yaml (тот файл
+# в .gitignore) и подставьте настоящий пароль:
+#
+#   cp 00-kube-prometheus-values.local.yaml.example 00-kube-prometheus-values.local.yaml
+#
+# Применяется ВТОРЫМ файлом -f при install/upgrade -- Helm накладывает
+# несколько -f файлов последовательно, поздний переопределяет ранний:
+#
+#   helm upgrade kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+#     --namespace monitoring \
+#     -f infra/k8s/observability/00-kube-prometheus-values.yaml \
+#     -f infra/k8s/observability/00-kube-prometheus-values.local.yaml
+
+grafana:
+  adminPassword: CHANGE-ME-use-a-real-password

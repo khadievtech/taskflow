@@ -1,0 +1,127 @@
+# Значения для kube-prometheus-stack — де-факто стандартного Helm-чарта для
+# мониторинга Kubernetes (prometheus-community/kube-prometheus-stack).
+#
+# Почему не raw-манифесты, как для backend/postgres: этот чарт ставит
+# Prometheus Operator, который добавляет в кластер СВОИ типы объектов
+# (ServiceMonitor, PrometheusRule) и сам генерирует из них конфигурацию
+# Prometheus. Написать это руками значило бы заново реализовать Operator —
+# несоразмерный объём работы для pet-проекта.
+#
+# Установка:
+#   helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+#   helm repo update
+#   helm install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+#     --namespace monitoring --create-namespace \
+#     -f infra/k8s/observability/00-kube-prometheus-values.yaml
+
+prometheus:
+  prometheusSpec:
+    retention: 15d
+    # Ресурсы заметно скромнее примеров из документации (там 2-4Gi) —
+    # кластер kind на домашнем ноутбуке уже держит Postgres, backend,
+    # frontend и Kong одновременно.
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 2Gi
+
+    # По умолчанию Prometheus Operator видит только ServiceMonitor с меткой
+    # release: kube-prometheus-stack — совпадающей с именем релиза Helm.
+    # Это неочевидное поведение ломает обнаружение сервисов приложения,
+    # у которых такой метки никогда не будет. serviceMonitorSelectorNilUsesHelmValues: false
+    # заставляет Prometheus подхватывать ЛЮБЫЕ ServiceMonitor в кластере,
+    # включая наш собственный для backend — без этой строки Prometheus
+    # его просто не заметил бы, без единой ошибки.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+
+grafana:
+  # Пароль НЕ здесь: этот файл отслеживается git. Реальное значение задаётся
+  # отдельным values-файлом при установке -- см.
+  # 00-kube-prometheus-values.local.yaml.example и .gitignore.
+  #
+  # Если это поле оставить пустым при первой установке, chart сгенерирует
+  # случайный пароль сам и положит в Secret -- он и был бы правильным
+  # выбором по умолчанию. Мы используем свой ради предсказуемости и того,
+  # чтобы объяснить сам паттерн разделения "публичный values / секретный
+  # values", а не потому что автогенерация чем-то плоха.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 96Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  persistence:
+    enabled: true
+    size: 1Gi
+
+  # Дополнительные источники данных сверх встроенного Prometheus — Loki
+  # (логи) и Tempo (трейсы) ставятся отдельными Helm-релизами, но Grafana
+  # из этого чарта должна знать о них, чтобы связать все три кита в одном
+  # интерфейсе, а не держать их разрозненно.
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      uid: loki
+      access: proxy
+      url: http://loki.monitoring.svc.cluster.local:3100
+      jsonData:
+        # Ссылка из строки лога на конкретный трейс в Tempo — обратная
+        # сторона derivedField у Tempo ниже. Вместе они дают переход
+        # логи → трейс → логи в обе стороны прямо в интерфейсе Grafana.
+        derivedFields:
+          - name: trace_id
+            matcherRegex: '"trace_id":\\s*"([^"]+)"'
+            datasourceUid: tempo
+            url: "$${__value.raw}"
+
+    - name: Tempo
+      type: tempo
+      uid: tempo
+      access: proxy
+      url: http://tempo.monitoring.svc.cluster.local:3200
+      jsonData:
+        # tracesToLogsV2 — обратная связь: открыв трейс в Tempo, можно
+        # одним кликом перейти к логам того же запроса в Loki, отфильтрованным
+        # по тому же trace_id и по времени трейса.
+        tracesToLogsV2:
+          datasourceUid: loki
+          spanStartTimeShift: "-5m"
+          spanEndTimeShift: "5m"
+          filterByTraceID: true
+        serviceMap:
+          datasourceUid: prometheus
+
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests:
+        cpu: 25m
+        memory: 32Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+    storage:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 512Mi
+
+# node-exporter и kube-state-metrics включены чартом по умолчанию — именно
+# они закрывают пункт 14 реестра техдолга (метрики контейнеров). В Docker
+# Compose это было недостижимо: cAdvisor не работал ни на Docker Desktop
+# для Mac, ни с Docker 29 (см. docs/adr/0003-defer-container-metrics.md).
+# kubelet на каждом узле уже отдаёт эти метрики сам, встроенно.
