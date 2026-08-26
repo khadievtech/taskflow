@@ -646,3 +646,8 @@ backend уже проверяет доступность Postgres напряму
 плюс `ServiceMonitor` по аналогии с `05-backend-servicemonitor.yaml`.
 
 **Issue**: создать вручную
+
+**Обновление (2026-08-26)**: решение зафиксировано формально как
+`docs/adr/0004-defer-gitops.md` -- после того как расхождение git/кластера
+дважды проявилось на практике во время Phase 7-8 (манифест backend с
+`opentelemetry-instrument` и лимит памяти Grafana).
