@@ -1,0 +1,272 @@
+# ConfigMap с дашбордом -- chart kube-prometheus-stack ставит сайдкар
+# (grafana-sc-dashboard), который следит за ConfigMap с меткой
+# grafana_dashboard="1" и сам импортирует их в Grafana. Ручная загрузка
+# через интерфейс не нужна: применили манифест -- дашборд появился.
+#
+# Метки берутся не из наших собственных объектов (app.kubernetes.io/name
+# и т.п.), а из соглашения самого chart'а -- проверено рабочими примерами
+# из документации kube-prometheus-stack.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: taskflow-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  taskflow-k8s.json: |
+    {
+      "uid": "taskflow-k8s",
+      "title": "TaskFlow (Kubernetes)",
+      "tags": [
+        "taskflow",
+        "kubernetes"
+      ],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "15s",
+      "time": {
+        "from": "now-1h",
+        "to": "now"
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "timeseries",
+          "title": "Request rate by endpoint",
+          "description": "Traffic -- сколько запросов в секунду приходит на каждый путь.",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 0
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (handler) (rate(http_requests_total{namespace=\"taskflow\"}[5m]))",
+              "legendFormat": "{{handler}}"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "type": "timeseries",
+          "title": "Error rate (4xx / 5xx)",
+          "description": "Errors -- доля неуспешных ответов. 5xx это наши баги, 4xx -- ошибки клиента.",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 0
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(rate(http_requests_total{namespace=\"taskflow\",status=~\"5..\"}[5m]))",
+              "legendFormat": "5xx"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(rate(http_requests_total{namespace=\"taskflow\",status=~\"4..\"}[5m]))",
+              "legendFormat": "4xx"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "type": "timeseries",
+          "title": "Latency p95 / p99",
+          "description": "Latency -- перцентили, а не среднее: среднее скрывает медленные запросы.",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 0
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{namespace=\"taskflow\"}[5m])))",
+              "legendFormat": "p95"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{namespace=\"taskflow\"}[5m])))",
+              "legendFormat": "p99"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "type": "timeseries",
+          "title": "Backend pods CPU & memory",
+          "description": "Saturation -- реальное использование ресурсов подами backend, из kubelet/cAdvisor. Недостижимо в Docker Compose (см. ADR-0003) -- закрыто переходом в Kubernetes.",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"taskflow\", pod=~\"backend-.*\"}[5m])) * 100",
+              "legendFormat": "{{pod}} CPU"
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "Postgres connections",
+          "description": "Приближение к лимиту соединений -- одна из типичных причин отказа.",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 16
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(pg_stat_database_numbackends)",
+              "legendFormat": "active connections"
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "type": "logs",
+          "title": "Backend logs",
+          "description": "Клик по строке -> раскрыть -> найти trace_id -> вставить в Tempo (Explore) для перехода к трейсу.",
+          "gridPos": {
+            "h": 10,
+            "w": 24,
+            "x": 0,
+            "y": 24
+          },
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "options": {
+            "showTime": true,
+            "wrapLogMessage": true,
+            "sortOrder": "Descending",
+            "enableLogDetails": true
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "loki",
+                "uid": "loki"
+              },
+              "expr": "{namespace=\"taskflow\", service=\"backend\"}",
+              "queryType": "range"
+            }
+          ]
+        }
+      ]
+    }

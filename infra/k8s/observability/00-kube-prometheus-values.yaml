@@ -58,10 +58,14 @@ grafana:
   resources:
     requests:
       cpu: 50m
-      memory: 96Mi
+      memory: 128Mi
+    # 512Mi вместо изначальных 256Mi -- реальный OOMKilled (exit code 137)
+    # при попытке сбросить пароль через `grafana cli admin
+    # reset-admin-password` внутри уже работающего пода: Grafana сама плюс
+    # кратковременный дополнительный процесс превысили прежний лимит.
     limits:
-      cpu: 200m
-      memory: 256Mi
+      cpu: 300m
+      memory: 512Mi
   persistence:
     enabled: true
     size: 1Gi

@@ -617,3 +617,32 @@ template, опечатка в имени ConfigMap, синтаксическая
 </details>
 
 **Issue**: создать вручную
+
+---
+
+## 25. Метрики Postgres не собираются в Kubernetes
+
+**Где**: `infra/k8s/observability/` -- нет манифеста для postgres-exporter,
+панель "Postgres connections" на дашборде `06-backend-dashboard.json`
+показывает пустоту.
+
+**В чём проблема**: в Docker Compose версии (Phase 4a) экспортёр стоял
+отдельным сервисом `postgres-exporter`, отдающим `pg_stat_database_*` и
+`pg_settings_max_connections`. При переносе стека наблюдения в Kubernetes
+(kube-prometheus-stack + Loki + Tempo + Alloy) этот компонент забыли --
+внимание переключилось на связку логов и трейсов. Проверено запросом
+`pg_stat_database_numbackends` к Prometheus: `result: []`, метрика
+физически отсутствует.
+
+**Почему приемлемо сейчас**: остальные три кита (метрики HTTP-запросов,
+логи, трейсы) работают и дают достаточно информации для разбора большинства
+проблем. Метрики самой БД -- дополнение, а не критичный пробел: readiness
+backend уже проверяет доступность Postgres напрямую.
+
+**Триггер для фикса**: перед тем как полагаться на дашборд при разборе
+реального инцидента с БД (исчерпание соединений, деградация). Решение --
+добавить `prometheus-community/postgres-exporter` тем же Helm-путём, что и
+остальной стек, с `DATA_SOURCE_NAME` из уже существующего Secret `postgres`,
+плюс `ServiceMonitor` по аналогии с `05-backend-servicemonitor.yaml`.
+
+**Issue**: создать вручную
