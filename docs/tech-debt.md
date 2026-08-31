@@ -651,3 +651,10 @@ backend уже проверяет доступность Postgres напряму
 `docs/adr/0004-defer-gitops.md` -- после того как расхождение git/кластера
 дважды проявилось на практике во время Phase 7-8 (манифест backend с
 `opentelemetry-instrument` и лимит памяти Grafana).
+
+**Обновление (закрыто)**: `infra/k8s/observability/08-postgres-exporter-values.yaml`
+-- prometheus-community/prometheus-postgres-exporter установлен в namespace
+`taskflow`, ссылается на уже существующий Secret `postgres` по ключам
+POSTGRES_USER/POSTGRES_PASSWORD (без дублирования пароля), ServiceMonitor
+создаётся самим чартом. Панель "Postgres connections" на дашборде должна
+показывать данные после установки.
