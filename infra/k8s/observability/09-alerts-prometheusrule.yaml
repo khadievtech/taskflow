@@ -1,0 +1,116 @@
+# PrometheusRule -- собственный CRD Prometheus Operator, декларация правил
+# алертов. Переносит пять правил, что работали в Docker Compose, на
+# проверенные метки Kubernetes -- не job="taskflow-backend", как было в
+# Compose (в кластере job называется иначе, см. разбор вчерашнего дня),
+# а namespace="taskflow", подтверждённое реальными запросами к Prometheus.
+#
+# Тот же принцип, что и весь реестр техдолга: алерты пишут на СИМПТОМЫ,
+# которые ощущает пользователь, а не на причины внутри системы.
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: taskflow-alerts
+  namespace: taskflow
+  labels:
+    # Метка release нужна, только если у kube-prometheus-stack включена
+    # ruleSelectorNilUsesHelmValues -- у нас она явно выключена
+    # (ruleSelectorNilUsesHelmValues: false в 00-kube-prometheus-values.yaml),
+    # поэтому Prometheus подхватит это правило из ЛЮБОГО namespace без
+    # дополнительных меток, тем же способом, что и наш ServiceMonitor.
+    app.kubernetes.io/name: taskflow-alerts
+spec:
+  groups:
+    - name: availability
+      rules:
+        - alert: BackendDown
+          expr: up{namespace="taskflow", pod=~"backend-.*"} == 0
+          for: 2m
+          labels:
+            severity: critical
+            service: backend
+          annotations:
+            summary: "Под backend недоступен более 2 минут"
+            description: >-
+              Prometheus не может получить метрики хотя бы с одного пода
+              backend в namespace taskflow. Проверить:
+              kubectl get pods -n taskflow -l app.kubernetes.io/name=backend
+
+        - alert: PostgresDown
+          # pg_up -- метрика САМОГО экспортёра (Phase 8, пункт 25 реестра),
+          # а не up{} по его Service: pg_up==0 означает конкретно "экспортёр
+          # не может подключиться к Postgres", тогда как up==0 означало бы
+          # "Prometheus не может скрейпить сам экспортёр" -- разные причины.
+          expr: pg_up == 0
+          for: 2m
+          labels:
+            severity: critical
+            service: database
+          annotations:
+            summary: "postgres-exporter не может подключиться к базе"
+            description: >-
+              Либо упал Postgres, либо сам экспортёр. Проверить:
+              kubectl get pods -n taskflow -l app=prometheus-postgres-exporter
+
+    - name: errors
+      rules:
+        - alert: HighErrorRate
+          # При полном отсутствии трафика числитель и знаменатель равны
+          # нулю, деление даёт NaN, сравнение с порогом ложно -- алерт не
+          # сработает. Это желаемое поведение: нет запросов, нет и
+          # пострадавших пользователей. Та же логика, что и в Compose-версии.
+          expr: >-
+            sum(rate(http_requests_total{namespace="taskflow", status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total{namespace="taskflow"}[5m]))
+            > 0.05
+          for: 5m
+          labels:
+            severity: critical
+            service: backend
+          annotations:
+            summary: "Более 5% запросов отвечают ошибкой 5xx"
+            description: >-
+              Текущая доля ошибок: {{ $value | humanizePercentage }}.
+              Найти причину в логах Loki:
+              {namespace="taskflow", service="backend"} | json | level="ERROR"
+
+    - name: latency
+      rules:
+        - alert: HighLatency
+          expr: >-
+            histogram_quantile(
+              0.95,
+              sum by (le) (rate(http_request_duration_seconds_bucket{namespace="taskflow"}[5m]))
+            ) > 0.5
+          for: 10m
+          labels:
+            severity: warning
+            service: backend
+          annotations:
+            summary: "95-й перцентиль латентности выше 500 мс"
+            description: >-
+              Текущий p95: {{ $value | humanizeDuration }}. Открыть трейсы
+              в Tempo: {resource.service.name="taskflow-backend"}
+
+    - name: saturation
+      rules:
+        - alert: PostgresConnectionsHigh
+          # max() без by(): при появлении второй реплики postgres-exporter
+          # (маловероятно для одного Postgres, но на будущее) sum() дал бы
+          # завышенное значение max_connections, max() -- корректное.
+          expr: >-
+            sum(pg_stat_database_numbackends)
+            /
+            max(pg_settings_max_connections)
+            > 0.8
+          for: 10m
+          labels:
+            severity: warning
+            service: database
+          annotations:
+            summary: "Занято более 80% соединений Postgres"
+            description: >-
+              Занято {{ $value | humanizePercentage }} от max_connections.
+              Исчерпание лимита приведёт к отказу новых подключений --
+              то есть к ошибкам 5xx у пользователей.

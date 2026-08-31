@@ -1,0 +1,58 @@
+# Конфигурация Alertmanager -- НЕ отдельная установка, а часть уже
+# существующего релиза kube-prometheus-stack (Alertmanager Operator ставит
+# его сам, отдельный helm install не нужен).
+#
+# Применяется ВТОРЫМ/ТРЕТЬИМ файлом -f поверх 00-kube-prometheus-values.yaml
+# и 00-kube-prometheus-values.local.yaml -- Helm накладывает несколько -f
+# файлов последовательно.
+#
+# Токен бота и chat_id -- НЕ здесь, этот файл отслеживается git. Реальные
+# значения в 10-alertmanager-values.local.yaml (см. .example рядом,
+# тот файл в .gitignore) -- тот же паттерн, что и с паролем Grafana.
+
+alertmanager:
+  config:
+    global:
+      resolve_timeout: 5m
+
+    route:
+      # Та же логика группировки, что была в Compose-версии: алерты с
+      # одинаковыми значениями этих меток уезжают одним сообщением, а не
+      # шквалом писем при одновременном падении нескольких компонентов.
+      group_by: ["alertname", "service"]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      receiver: telegram
+      routes:
+        - matchers:
+            - severity = "critical"
+          receiver: telegram
+          repeat_interval: 1h
+
+    inhibit_rules:
+      - source_matchers:
+          - severity = "critical"
+        target_matchers:
+          - severity = "warning"
+        equal: ["service"]
+      - source_matchers:
+          - alertname = "PostgresDown"
+        target_matchers:
+          - service = "backend"
+
+    receivers:
+      - name: telegram
+        telegram_configs:
+          - bot_token: "PLACEHOLDER_SET_VIA_LOCAL_VALUES"
+            chat_id: 0
+            parse_mode: HTML
+            send_resolved: true
+            message: |
+              {{ if eq .Status "firing" }}FIRING{{ else }}RESOLVED{{ end }}
+              {{ range .Alerts }}
+              {{ .Labels.alertname }} ({{ .Labels.severity }})
+              {{ .Annotations.summary }}
+
+              {{ .Annotations.description }}
+              {{ end }}
