@@ -1,0 +1,32 @@
+# ШАБЛОН. Скопируйте в 10-alertmanager-values.local.yaml (тот файл в
+# .gitignore) и подставьте настоящие значения:
+#
+#   cp 10-alertmanager-values.local.yaml.example 10-alertmanager-values.local.yaml
+#
+# ВАЖНО: здесь дублируется ВЕСЬ receiver целиком, не только bot_token и
+# chat_id. Причина -- Helm при слиянии нескольких -f файлов ЗАМЕНЯЕТ списки
+# целиком, а не объединяет их по полям (в отличие от словарей, которые
+# сливаются рекурсивно). Если бы здесь был только "bot_token: ...", весь
+# остальной receiver (parse_mode, send_resolved, message) из
+# 10-alertmanager-values.yaml был бы потерян при наложении этого файла.
+#
+# chat_id узнать так же, как в Docker Compose версии (Phase 4c):
+#   curl -s "https://api.telegram.org/botВАШ_ТОКЕН/getUpdates"
+
+alertmanager:
+  config:
+    receivers:
+      - name: telegram
+        telegram_configs:
+          - bot_token: "CHANGE-ME-your-real-telegram-bot-token"
+            chat_id: 000000000
+            parse_mode: HTML
+            send_resolved: true
+            message: |
+              {{ if eq .Status "firing" }}FIRING{{ else }}RESOLVED{{ end }}
+              {{ range .Alerts }}
+              {{ .Labels.alertname }} ({{ .Labels.severity }})
+              {{ .Annotations.summary }}
+
+              {{ .Annotations.description }}
+              {{ end }}

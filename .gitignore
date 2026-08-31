@@ -48,3 +48,4 @@ observability/alertmanager/telegram_token
 infra/k8s/base/*-secret.yaml
 !infra/k8s/base/*-secret.example.yaml
 infra/k8s/observability/00-kube-prometheus-values.local.yaml
+infra/k8s/observability/10-alertmanager-values.local.yaml
