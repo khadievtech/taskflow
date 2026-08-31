@@ -1,0 +1,58 @@
+# prometheus-community/prometheus-postgres-exporter -- закрывает пункт 25
+# реестра техдолга: панель "Postgres connections" на дашборде показывала
+# пустоту, потому что этого экспортёра не было вообще.
+#
+# Устанавливается В NAMESPACE taskflow, а не monitoring -- принципиально:
+# чарт ссылается на существующий Secret "postgres" ПО ИМЕНИ через
+# userSecret/passwordSecret, а Kubernetes Secret виден только внутри
+# своего namespace. Кросс-namespace ссылки на секреты чарт не поддерживает,
+# и это не ограничение конкретно нашей конфигурации -- общее свойство
+# Kubernetes RBAC.
+#
+# Секрет НЕ дублируется и не создаётся новый -- используются уже
+# существующие ключи POSTGRES_USER / POSTGRES_PASSWORD из
+# infra/k8s/base/10-postgres-secret.yaml. Имя базы (taskflow) и sslmode
+# заданы прямо здесь как обычные значения -- они не секретны.
+#
+# Установка:
+#   helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+#   helm repo update
+#   helm install postgres-exporter prometheus-community/prometheus-postgres-exporter \
+#     --namespace taskflow \
+#     -f infra/k8s/observability/08-postgres-exporter-values.yaml
+
+config:
+  datasource:
+    # Короткое DNS-имя, а не полное с .svc.cluster.local -- работает,
+    # потому что экспортёр находится В ТОМ ЖЕ namespace, что и сам Postgres.
+    host: postgres
+    port: "5432"
+    database: taskflow
+    # Внутрикластерный трафик между экспортёром и Postgres не шифруется --
+    # TLS у самой базы нет (см. пункт про TLS в общем реестре, Phase 5b).
+    sslmode: disable
+    userSecret:
+      name: postgres
+      key: POSTGRES_USER
+    passwordSecret:
+      name: postgres
+      key: POSTGRES_PASSWORD
+
+# Чарт создаёт ServiceMonitor сам -- писать его руками, как делали для
+# backend в 05-backend-servicemonitor.yaml, не требуется. Namespace для
+# самого ServiceMonitor не указан явно -- по умолчанию он создаётся в том
+# же namespace, куда ставится сам релиз (taskflow), чего достаточно:
+# Prometheus Operator у нас настроен видеть ServiceMonitor из ЛЮБОГО
+# namespace (serviceMonitorSelectorNilUsesHelmValues: false в
+# 00-kube-prometheus-values.yaml).
+serviceMonitor:
+  enabled: true
+  interval: 30s
+
+resources:
+  requests:
+    cpu: 25m
+    memory: 32Mi
+  limits:
+    cpu: 100m
+    memory: 128Mi
