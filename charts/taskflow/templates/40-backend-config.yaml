@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend
+  namespace: {{ .Values.namespace }}
+data:
+  APP_NAME: "TaskFlow API"
+  ENVIRONMENT: {{ .Values.backend.config.environment | quote }}
+  DEBUG: {{ .Values.backend.config.debug | quote }}
+  COOKIE_SECURE: {{ .Values.backend.config.cookieSecure | quote }}
+  ALLOW_REGISTRATION: {{ .Values.backend.config.allowRegistration | quote }}
+  CORS_ORIGINS: {{ .Values.backend.config.corsOrigins | quote }}
+
+  # OpenTelemetry: эндпоинт указывает на Tempo в namespace monitoring --
+  # НЕ параметризован через values, потому что стек наблюдения ставится
+  # отдельными Helm-релизами (kube-prometheus-stack/loki/tempo/alloy),
+  # а не этим чартом -- имя сервиса Tempo фиксировано их установкой.
+  OTEL_SERVICE_NAME: "taskflow-backend"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://tempo.monitoring.svc.cluster.local:4317"
+  OTEL_EXPORTER_OTLP_PROTOCOL: "grpc"
+  OTEL_TRACES_EXPORTER: "otlp"
+  OTEL_METRICS_EXPORTER: "none"
+  OTEL_LOGS_EXPORTER: "none"
+  OTEL_TRACES_SAMPLER: "always_on"

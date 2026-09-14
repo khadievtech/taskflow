@@ -1,0 +1,14 @@
+# Аннотация konghq.com/gatewayclass-unmanaged: "true" ОБЯЗАТЕЛЬНА -- без
+# неё Gateway вечно висит в статусе "Waiting for controller" без единой
+# ошибки при apply (найдено ценой примерно часа отладки логов контроллера
+# Kong). Означает: используй УЖЕ существующий прокси, поставленный
+# отдельным Helm-релизом kong/ingress, не пытайся провижинить новый.
+
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: {{ .Values.gateway.className }}
+  annotations:
+    konghq.com/gatewayclass-unmanaged: "true"
+spec:
+  controllerName: konghq.com/kic-gateway-controller
