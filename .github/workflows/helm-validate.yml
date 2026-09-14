@@ -118,11 +118,22 @@ jobs:
       - name: Dump diagnostics on failure
         if: failure()
         run: |
+          echo "=== kubectl context ==="
+          kubectl config current-context
           echo "=== helm status ==="
           helm status taskflow-ci -n taskflow || true
+          echo "=== helm get manifest (что РЕАЛЬНО пытался применить Helm) ==="
+          helm get manifest taskflow-ci -n taskflow || true
+          echo "=== helm history ==="
+          helm history taskflow-ci -n taskflow || true
+          echo "=== namespaces ==="
+          kubectl get namespaces
+          echo "=== all resources in taskflow (все API-группы, не только pods) ==="
+          kubectl api-resources --verbs=list --namespaced -o name | \
+            xargs -I{} sh -c 'kubectl get {} -n taskflow 2>/dev/null | grep -v "^No resources" && echo "  ^-- {}" || true'
           echo "=== pods ==="
           kubectl get pods -n taskflow -o wide
           echo "=== events ==="
-          kubectl get events -n taskflow --sort-by='.lastTimestamp'
+          kubectl get events -n taskflow --sort-by='"'"'.lastTimestamp'"'"'
           echo "=== backend logs ==="
           kubectl logs -n taskflow -l app.kubernetes.io/name=backend --tail=100 || true
