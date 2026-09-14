@@ -1,0 +1,59 @@
+# Job с Helm-хуком -- улучшение по сравнению с raw-манифестом
+# (infra/k8s/base/50-migrate-job.yaml), где имя Job было статичным и
+# требовало ручного `kubectl delete job migrate` перед каждым повторным
+# применением (см. README и пункт 6 реестра техдолга).
+#
+# ВАЖНО: событие -- post-install,post-upgrade, а НЕ pre-install/pre-upgrade.
+# Реальная находка при тестировании: pre-install выполняется РАНЬШЕ вообще
+# всех обычных (не-хук) ресурсов чарта -- Job падал с
+# "Name or service not known", потому что Service и StatefulSet Postgres
+# ещё не существовали в кластере на момент его запуска. post-install
+# выполняется уже ПОСЛЕ того, как все обычные ресурсы применены.
+#
+# Но даже "применены" не значит "Postgres готов принимать соединения" --
+# применение StatefulSet не ждёт прохождения его readinessProbe. Поэтому
+# добавлен initContainer с pg_isready, который блокирует запуск миграций,
+# пока база реально не ответит -- своя маленькая проверка готовности,
+# а не полагание на удачное совпадение по времени.
+#
+# hook-delete-policy удаляет предыдущий Job перед созданием нового --
+# конфликт имён, из-за которого раньше приходилось чистить руками,
+# здесь решается декларативно, самим Helm.
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migrate
+  namespace: {{ .Values.namespace }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: Never
+      initContainers:
+        - name: wait-for-postgres
+          image: "{{ .Values.postgres.image.repository }}:{{ .Values.postgres.image.tag }}"
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h postgres -U {{ .Values.postgres.user }}; do
+                echo "Postgres ещё не готов, жду..."
+                sleep 2
+              done
+      containers:
+        - name: migrate
+          image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
+          command: ["alembic", "upgrade", "head"]
+          envFrom:
+            - configMapRef:
+                name: backend
+            - secretRef:
+                name: backend
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: 500m, memory: 512Mi }
