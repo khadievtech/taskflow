@@ -6,7 +6,7 @@
 # оба Deployment) -- одинаковый набор ключей упрощает чтение и позволяет
 # в будущем вынести общий шаблон в partial (_helpers.tpl), если понадобится.
 
-namespace: taskflow-helm-test
+namespace: taskflow
 
 postgres:
   image:
